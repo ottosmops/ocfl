@@ -46,6 +46,10 @@ final class LocalFilesystem implements Filesystem
 
     public function copy(string $source, string $destination): void
     {
+        if (! is_file($source)) {
+            throw new RuntimeException("copy source missing: {$source}");
+        }
+
         $this->createDirectory(dirname($destination));
 
         if (! copy($source, $destination)) {

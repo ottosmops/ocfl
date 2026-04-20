@@ -295,6 +295,74 @@ test('checkout materialises a version into a target directory', function (): voi
     }
 });
 
+test('create without arguments returns usage error', function (): void {
+    $result = runCli(['ocfl', 'create']);
+
+    expect($result['exit'])->toBe(2)
+        ->and($result['stderr'])->toContain('usage');
+});
+
+test('create rejects an unsupported digest algorithm', function (): void {
+    $dir = cliWorkDir();
+
+    try {
+        $result = runCli(['ocfl', 'create', $dir . '/obj', 'urn:test:x', '--digest=md5']);
+        expect($result['exit'])->toBe(2)
+            ->and($result['stderr'])->toContain("unsupported --digest 'md5'");
+    } finally {
+        cliCleanup($dir);
+    }
+});
+
+test('commit without any arguments returns usage error', function (): void {
+    $result = runCli(['ocfl', 'commit']);
+
+    expect($result['exit'])->toBe(2)
+        ->and($result['stderr'])->toContain('usage');
+});
+
+test('commit --from on a non-existent source returns usage error', function (): void {
+    $result = runCli(['ocfl', 'commit', '/tmp/does-not-matter', '--from=/tmp/missing-' . uniqid()]);
+
+    expect($result['exit'])->toBe(2)
+        ->and($result['stderr'])->toContain('source directory does not exist');
+});
+
+test('checkout without arguments returns usage error', function (): void {
+    $result = runCli(['ocfl', 'checkout']);
+
+    expect($result['exit'])->toBe(2)
+        ->and($result['stderr'])->toContain('usage');
+});
+
+test('validate without a path returns usage error', function (): void {
+    $result = runCli(['ocfl', 'validate']);
+
+    expect($result['exit'])->toBe(2)
+        ->and($result['stderr'])->toContain('missing');
+});
+
+test('info without a path returns usage error', function (): void {
+    $result = runCli(['ocfl', 'info']);
+
+    expect($result['exit'])->toBe(2)
+        ->and($result['stderr'])->toContain('missing');
+});
+
+test('list without a path returns usage error', function (): void {
+    $result = runCli(['ocfl', 'list']);
+
+    expect($result['exit'])->toBe(2)
+        ->and($result['stderr'])->toContain('missing');
+});
+
+test('list errors runtime-style when pointed at a non-storage-root', function (): void {
+    $result = runCli(['ocfl', 'list', '/tmp']);
+
+    expect($result['exit'])->toBe(3)
+        ->and($result['stderr'])->toContain('ocfl:');
+});
+
 test('checkout honours --version', function (): void {
     $dir = cliWorkDir();
 

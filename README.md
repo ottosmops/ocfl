@@ -277,14 +277,19 @@ Implemented warnings: `W001 W002 W004 W005 W007 W008 W009 W010 W011 W013`.
 
 ```bash
 composer install
-composer check         # pint + phpstan + pest
-composer test          # pest
-composer analyse       # phpstan level max
-composer format        # laravel pint
-composer refactor      # rector
+composer check                        # pint + phpstan + pest
+composer test                         # pest
+composer test:coverage                # pest with coverage (needs xdebug or pcov)
+composer analyse                      # phpstan level max
+composer format                       # laravel pint
+composer refactor                     # rector
 ```
 
-CI runs on Ubuntu and macOS against PHP 8.3 and 8.4.
+CI runs on Ubuntu and macOS against PHP 8.3 and 8.4. Current test suite:
+**249 tests · 469 assertions · 94 % line coverage**; most remaining
+uncovered lines are host-level I/O failure paths (mkdir-refused,
+hash_file-on-special-file, etc.) that can't be triggered deterministically
+in a unit test.
 
 ## References
 
