@@ -59,6 +59,8 @@ enum ErrorCode: string
 
     // Content / manifest integrity
     case E092 = 'E092'; // Content file digest does not match manifest
+    case E093 = 'E093'; // Fixity digest does not match content file
+    case E097 = 'E097'; // Fixity block has duplicate digests (case variants)
 
     // Storage root
     case E070 = 'E070'; // Missing or invalid ocfl_layout.json

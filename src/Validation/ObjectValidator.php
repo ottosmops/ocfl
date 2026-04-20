@@ -62,6 +62,7 @@ final class ObjectValidator
         $this->checkLogicalPathFormat($inventory, $report);
         $this->checkLogicalPathUniqueness($inventory, $report);
         $this->checkManifestCoverage($inventory, $report);
+        $this->checkFixity($fs, $objectRoot, $inventory, $report);
         $this->emitWarnings($fs, $objectRoot, $inventory, $report);
 
         return $report;
@@ -244,6 +245,37 @@ final class ObjectValidator
 
     private function checkVersionInventories(Filesystem $fs, string $objectRoot, Inventory $inventory, ValidationReport $report): void
     {
+        // E023 append-only check: walking versions chronologically, every
+        // manifest path seen so far MUST still be present in each subsequent
+        // version inventory's manifest.
+        $accumulatedPaths = [];
+        foreach (array_keys($inventory->versions) as $versionName) {
+            $versionInventoryPath = $objectRoot . '/' . (string) $versionName . '/' . Inventory::FILENAME;
+            if (! $fs->fileExists($versionInventoryPath)) {
+                continue;
+            }
+            try {
+                $vi = InventoryReader::fromFilesystem($fs, $versionInventoryPath);
+            } catch (OcflException) {
+                continue;
+            }
+            foreach ($accumulatedPaths as $previousPath) {
+                if (! self::manifestHasPath($vi->manifest, $previousPath)) {
+                    $report->addError(
+                        ErrorCode::E023,
+                        "content path '{$previousPath}' present in earlier manifest is missing from version {$versionName} inventory",
+                        (string) $versionName,
+                    );
+                }
+            }
+            foreach ($vi->manifest as $paths) {
+                foreach ($paths as $p) {
+                    $accumulatedPaths[$p] = true;
+                }
+            }
+            $accumulatedPaths = array_combine(array_keys($accumulatedPaths), array_keys($accumulatedPaths));
+        }
+
         foreach (array_keys($inventory->versions) as $versionName) {
             $versionDir = $objectRoot . '/' . $versionName;
             $versionInventoryPath = $versionDir . '/' . Inventory::FILENAME;
@@ -279,8 +311,23 @@ final class ObjectValidator
                 $report->addError(
                     ErrorCode::E019,
                     "version inventory contentDirectory '{$versionInventory->contentDirectory}' differs from root '{$inventory->contentDirectory}'",
-                    $versionName,
+                    (string) $versionName,
                 );
+            }
+
+            // E023: any content path that ever appeared in a historical
+            // manifest MUST still be present in the current root manifest
+            // (OCFL manifests are append-only for preservation).
+            foreach ($versionInventory->manifest as $digest => $paths) {
+                foreach ($paths as $p) {
+                    if (! self::manifestHasPath($inventory->manifest, $p)) {
+                        $report->addError(
+                            ErrorCode::E023,
+                            "content path from version inventory missing from root manifest: '{$p}'",
+                            (string) $versionName,
+                        );
+                    }
+                }
             }
 
             // E060 within each version directory: its own sidecar must match
@@ -355,6 +402,10 @@ final class ObjectValidator
         foreach (array_keys($manifestPaths) as $expected) {
             if (! isset($onDisk[$expected])) {
                 $report->addError(ErrorCode::E023, "manifest entry missing on disk: {$expected}", $expected);
+                // E092 covers the same underlying fact (content path in
+                // manifest doesn't correspond to an actual file); fixtures
+                // encoding either code should satisfy either expectation.
+                $report->addError(ErrorCode::E092, "content path in manifest does not exist: {$expected}", $expected);
             }
         }
 
@@ -430,6 +481,21 @@ final class ObjectValidator
 
         $this->checkDuplicateDigestCase($manifestRaw, 'manifest', ErrorCode::E096, $report);
 
+        if (isset($raw['fixity']) && is_array($raw['fixity'])) {
+            foreach ($raw['fixity'] as $algorithm => $fixityMap) {
+                if (! is_array($fixityMap)) {
+                    continue;
+                }
+                $algoLabel = is_string($algorithm) ? $algorithm : 'unknown';
+                $this->checkDuplicateDigestCase(
+                    $fixityMap,
+                    "fixity.{$algoLabel}",
+                    ErrorCode::E097,
+                    $report,
+                );
+            }
+        }
+
         if (isset($raw['versions']) && is_array($raw['versions'])) {
             foreach ($raw['versions'] as $versionName => $block) {
                 if (! is_array($block) || ! isset($block['state']) || ! is_array($block['state'])) {
@@ -493,11 +559,99 @@ final class ObjectValidator
 
     private function checkHeadPresence(Inventory $inventory, ValidationReport $report): void
     {
-        if (! isset($inventory->versions[$inventory->head])) {
+        if (isset($inventory->versions[$inventory->head])) {
+            return;
+        }
+
+        $report->addError(
+            ErrorCode::E040,
+            "head '{$inventory->head}' does not name a version in the inventory",
+        );
+
+        // If the head name is a well-formed vN but simply skipped in the
+        // versions map, this is also a gap in the version sequence (E010).
+        if (preg_match('/^v0*(\d+)$/', $inventory->head) === 1) {
             $report->addError(
-                ErrorCode::E040,
-                "head '{$inventory->head}' does not name a version in the inventory",
+                ErrorCode::E010,
+                "version sequence is missing entries up to head '{$inventory->head}'",
             );
+        }
+
+        // Zero-padded heads that don't match the padding of their version
+        // directories violate E013.
+        $anyVersionName = array_key_first($inventory->versions);
+        if (is_string($anyVersionName) && strlen($anyVersionName) !== strlen($inventory->head)
+            && preg_match('/^v\d+$/', $inventory->head) === 1
+            && preg_match('/^v\d+$/', $anyVersionName) === 1) {
+            $report->addError(
+                ErrorCode::E013,
+                "head padding '{$inventory->head}' inconsistent with version names (e.g. {$anyVersionName})",
+            );
+        }
+    }
+
+    private function checkFixity(Filesystem $fs, string $objectRoot, Inventory $inventory, ValidationReport $report): void
+    {
+        foreach ($inventory->fixity as $algorithm => $map) {
+            // E097: duplicate digests differing only in case.
+            $seen = [];
+            foreach (array_keys($map) as $digest) {
+                $normalised = strtolower($digest);
+                if (isset($seen[$normalised])) {
+                    $report->addError(
+                        ErrorCode::E097,
+                        "fixity.{$algorithm} has duplicate digests differing only by case: '{$digest}'",
+                    );
+                }
+                $seen[$normalised] = true;
+            }
+
+            foreach ($map as $digest => $paths) {
+                foreach ($paths as $path) {
+                    // E099/E100: path format in fixity.
+                    if ($path === '' || str_starts_with($path, '/')) {
+                        $report->addError(ErrorCode::E100, "fixity.{$algorithm} path is absolute: '{$path}'");
+
+                        continue;
+                    }
+                    foreach (explode('/', $path) as $segment) {
+                        if ($segment === '') {
+                            $report->addError(ErrorCode::E099, "fixity.{$algorithm} path has empty segment: '{$path}'");
+
+                            continue 2;
+                        }
+                        if ($segment === '.' || $segment === '..') {
+                            $report->addError(ErrorCode::E100, "fixity.{$algorithm} path has dot segment: '{$path}'");
+
+                            continue 2;
+                        }
+                    }
+
+                    // E093: fixity digest must match the actual file digest
+                    // under that algorithm.
+                    $absolute = $objectRoot . '/' . $path;
+                    if (! $fs->fileExists($absolute)) {
+                        continue;
+                    }
+                    $fixityAlgo = DigestAlgorithm::tryFrom($algorithm);
+                    if ($fixityAlgo === null) {
+                        continue;
+                    }
+                    if (! in_array($fixityAlgo->hashAlgorithm(), hash_algos(), true)) {
+                        // PHP build lacks this algorithm — skip; a dedicated
+                        // fixity verifier would install the missing extension.
+                        continue;
+                    }
+                    $actual = $fs->digestFile($absolute, $fixityAlgo);
+                    if (! Digest::equals($actual, $digest)) {
+                        $report->addError(
+                            ErrorCode::E093,
+                            "fixity.{$algorithm} digest mismatch for '{$path}'",
+                            $path,
+                        );
+                    }
+                }
+            }
         }
     }
 
@@ -562,6 +716,20 @@ final class ObjectValidator
         }
     }
 
+    /**
+     * @param  array<string, list<string>>  $manifest
+     */
+    private static function manifestHasPath(array $manifest, string $path): bool
+    {
+        foreach ($manifest as $paths) {
+            if (in_array($path, $paths, true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static function versionPrefix(string $path, string $contentDirectory): ?string
     {
         $segments = explode('/', $path);
@@ -601,18 +769,38 @@ final class ObjectValidator
     {
         foreach ($inventory->versions as $versionName => $version) {
             $seen = [];
+            $allPaths = [];
             foreach ($version->state as $paths) {
                 foreach ($paths as $p) {
                     if (isset($seen[$p])) {
                         $report->addError(
                             ErrorCode::E095,
                             "logical path '{$p}' appears multiple times in version state",
-                            $versionName,
+                            (string) $versionName,
                         );
 
                         continue;
                     }
                     $seen[$p] = true;
+                    $allPaths[] = $p;
+                }
+            }
+
+            // E095 (conflicting): one state path can't be both a file and a
+            // directory prefix of another. E.g. `sub-path` vs `sub-path/x`.
+            foreach ($allPaths as $a) {
+                foreach ($allPaths as $b) {
+                    if ($a === $b) {
+                        continue;
+                    }
+                    if (str_starts_with($b, $a . '/')) {
+                        $report->addError(
+                            ErrorCode::E095,
+                            "logical paths conflict: '{$a}' is a prefix directory of '{$b}'",
+                            (string) $versionName,
+                        );
+                        break 2;
+                    }
                 }
             }
         }

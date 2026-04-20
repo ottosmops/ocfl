@@ -87,6 +87,16 @@ it('rejects bad-object fixtures with the expected error codes', function (string
     ['E015_content_not_in_content_dir', ErrorCode::E015],
     ['E003_E063_empty', ErrorCode::E003],
     ['E010_skipped_versions', ErrorCode::E010],
+    ['E010_missing_versions', ErrorCode::E010],
+    ['E023_extra_file', ErrorCode::E023],
+    ['E023_old_manifest_missing_entries', ErrorCode::E023],
+    ['E049_E050_E054_bad_version_block_values', ErrorCode::E049],
+    ['E061_invalid_sidecar', ErrorCode::E061],
+    ['E092_E093_content_path_does_not_exist', ErrorCode::E092],
+    ['E093_fixity_digest_mismatch', ErrorCode::E093],
+    ['E095_conflicting_logical_paths', ErrorCode::E095],
+    ['E097_fixity_duplicate_digests', ErrorCode::E097],
+    ['E100_E099_fixity_invalid_content_paths', ErrorCode::E100],
 ]);
 
 function warnFixturePath(string $name): string

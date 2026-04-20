@@ -56,7 +56,7 @@ final class InventorySidecar
         }
 
         if (! preg_match('/^([a-fA-F0-9]+)\s+inventory\.json$/', rtrim($contents, "\n"), $matches)) {
-            throw new OcflException(ErrorCode::E058, "sidecar malformed: {$path}");
+            throw new OcflException(ErrorCode::E061, "sidecar format invalid: {$path}");
         }
 
         return strtolower($matches[1]);
