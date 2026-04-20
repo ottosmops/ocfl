@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace Ottosmops\Ocfl;
 
-use Ottosmops\Ocfl\Internal\Fs;
+use Ottosmops\Ocfl\Filesystem\Filesystem;
+use Ottosmops\Ocfl\Filesystem\LocalFilesystem;
 use Ottosmops\Ocfl\Inventory\Inventory;
 use Ottosmops\Ocfl\Inventory\InventoryReader;
 use Ottosmops\Ocfl\Inventory\InventorySidecar;
@@ -16,29 +17,29 @@ use Ottosmops\Ocfl\Validation\ValidationReport;
 use OutOfBoundsException;
 
 /**
- * Read-side facade for an on-disk OCFL 1.1 object.
+ * Read + write facade for an on-disk (or cloud-disk) OCFL 1.1 object.
  *
- * Responsibilities:
- *   - Validate the object root layout (NAMASTE + inventory + sidecar).
- *   - Expose metadata (id, head, version names).
- *   - Resolve logical paths to content paths via manifest + version state.
- *   - Stream or copy content to callers, verifying fixity on read.
+ * All filesystem access is mediated by the injected Filesystem; callers
+ * that omit one get a LocalFilesystem for POSIX-style host I/O.
  */
 final readonly class OcflObject
 {
     public function __construct(
         public string $path,
         public Inventory $inventory,
+        public Filesystem $fs,
     ) {
     }
 
-    public static function open(string $path): self
+    public static function open(string $path, ?Filesystem $fs = null): self
     {
-        if (! is_dir($path)) {
+        $fs ??= new LocalFilesystem();
+
+        if (! $fs->directoryExists($path)) {
             throw new OcflException(ErrorCode::E003, "object root does not exist: {$path}");
         }
 
-        $namaste = Namaste::find($path);
+        $namaste = Namaste::find($fs, $path);
 
         if ($namaste !== NamasteType::ObjectRoot) {
             throw new OcflException(
@@ -47,40 +48,39 @@ final readonly class OcflObject
             );
         }
 
-        $inventoryPath = $path . DIRECTORY_SEPARATOR . Inventory::FILENAME;
-        $inventory = InventoryReader::fromFile($inventoryPath);
+        $inventory = InventoryReader::fromFilesystem($fs, $path . '/' . Inventory::FILENAME);
 
-        if (! InventorySidecar::verify($path, $inventory->digestAlgorithm)) {
+        if (! InventorySidecar::verify($fs, $path, $inventory->digestAlgorithm)) {
             throw new OcflException(
                 ErrorCode::E060,
                 "inventory sidecar digest does not match inventory.json in {$path}",
             );
         }
 
-        return new self($path, $inventory);
+        return new self($path, $inventory, $fs);
     }
 
     /**
      * Initialise a new, empty OCFL object at $path.
      *
      * The NAMASTE declaration is written immediately; no inventory is
-     * persisted until the first commit. The returned instance holds an
-     * in-memory, uninitialised Inventory (empty head, no versions) used
-     * by VersionBuilder as the base for the first commit.
+     * persisted until the first commit.
      */
     public static function create(
         string $path,
         string $id,
         DigestAlgorithm $digestAlgorithm = DigestAlgorithm::Sha512,
+        ?Filesystem $fs = null,
     ): self {
-        Fs::ensureDirectory($path);
+        $fs ??= new LocalFilesystem();
+        $fs->createDirectory($path);
 
         // An object root MUST be empty before initialisation (§3.3).
-        if ((new \FilesystemIterator($path))->valid()) {
+        if ($fs->listDirectory($path) !== []) {
             throw new OcflException(ErrorCode::E001, "object root {$path} is not empty");
         }
 
-        Namaste::write($path, NamasteType::ObjectRoot);
+        Namaste::write($fs, $path, NamasteType::ObjectRoot);
 
         $emptyInventory = new Inventory(
             id: $id,
@@ -92,7 +92,7 @@ final readonly class OcflObject
             versions: [],
         );
 
-        return new self($path, $emptyInventory);
+        return new self($path, $emptyInventory, $fs);
     }
 
     public function newVersion(): VersionBuilder
@@ -102,7 +102,7 @@ final readonly class OcflObject
 
     public function validate(): ValidationReport
     {
-        return (new ObjectValidator())->validate($this->path);
+        return (new ObjectValidator())->validate($this->path, $this->fs);
     }
 
     public function id(): string
@@ -124,8 +124,6 @@ final readonly class OcflObject
     }
 
     /**
-     * Return the sorted list of logical paths present in the given version.
-     *
      * @return list<string>
      */
     public function logicalPaths(string $version): array
@@ -166,19 +164,13 @@ final readonly class OcflObject
     public function readContent(string $version, string $logicalPath): string
     {
         $relative = $this->resolveContentPath($version, $logicalPath);
-        $absolute = $this->path . DIRECTORY_SEPARATOR . $relative;
+        $absolute = $this->path . '/' . $relative;
 
-        if (! is_file($absolute)) {
+        if (! $this->fs->fileExists($absolute)) {
             throw new OcflException(ErrorCode::E092, "content file missing at {$absolute}");
         }
 
-        $bytes = file_get_contents($absolute);
-
-        if ($bytes === false) {
-            throw new OcflException(ErrorCode::E092, "content file unreadable at {$absolute}");
-        }
-
-        return $bytes;
+        return $this->fs->read($absolute);
     }
 
     /**
@@ -188,25 +180,17 @@ final readonly class OcflObject
     {
         $version ??= $this->inventory->head;
         $state = $this->requireVersion($version)->state;
-
-        Fs::ensureDirectory($targetDirectory);
+        $this->fs->createDirectory($targetDirectory);
 
         foreach ($state as $digest => $logicalPaths) {
-            $source = $this->path . DIRECTORY_SEPARATOR
-                . $this->contentPathForDigest($digest, $version, $logicalPaths[0]);
+            $source = $this->path . '/' . $this->contentPathForDigest($digest, $version, $logicalPaths[0]);
 
             foreach ($logicalPaths as $logicalPath) {
-                $destination = $targetDirectory . DIRECTORY_SEPARATOR . $logicalPath;
-                Fs::ensureDirectory(dirname($destination));
+                $destination = $targetDirectory . '/' . $logicalPath;
+                $this->fs->createDirectory(dirname($destination));
+                $this->fs->copy($source, $destination);
 
-                if (! copy($source, $destination)) {
-                    throw new OcflException(
-                        ErrorCode::E092,
-                        "failed to copy {$source} to {$destination}",
-                    );
-                }
-
-                $actual = Digest::ofFile($destination, $this->inventory->digestAlgorithm);
+                $actual = $this->fs->digestFile($destination, $this->inventory->digestAlgorithm);
 
                 if (! Digest::equals($actual, $digest)) {
                     throw new OcflException(

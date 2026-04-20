@@ -8,8 +8,10 @@ use DateTimeImmutable;
 use Exception;
 use JsonException;
 use Ottosmops\Ocfl\DigestAlgorithm;
+use Ottosmops\Ocfl\Filesystem\Filesystem;
 use Ottosmops\Ocfl\Validation\ErrorCode;
 use Ottosmops\Ocfl\Validation\OcflException;
+use RuntimeException;
 
 /**
  * Parses inventory.json into an Inventory value object.
@@ -34,16 +36,16 @@ final class InventoryReader
         'versions',
     ];
 
-    public static function fromFile(string $path): Inventory
+    public static function fromFilesystem(Filesystem $fs, string $path): Inventory
     {
-        if (! is_file($path)) {
+        if (! $fs->fileExists($path)) {
             throw new OcflException(ErrorCode::E033, "inventory file not readable: {$path}");
         }
 
-        $contents = file_get_contents($path);
-
-        if ($contents === false) {
-            throw new OcflException(ErrorCode::E033, "inventory file read failed: {$path}");
+        try {
+            $contents = $fs->read($path);
+        } catch (RuntimeException $e) {
+            throw new OcflException(ErrorCode::E033, "inventory file read failed: {$path}", $e);
         }
 
         return self::fromString($contents);

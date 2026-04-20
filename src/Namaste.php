@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Ottosmops\Ocfl;
 
+use Ottosmops\Ocfl\Filesystem\Filesystem;
+use Ottosmops\Ocfl\Filesystem\LocalFilesystem;
 use RuntimeException;
 
 /**
@@ -14,39 +16,38 @@ use RuntimeException;
  */
 final class Namaste
 {
-    public static function write(string $directory, NamasteType $type): void
+    public static function write(Filesystem $fs, string $directory, NamasteType $type): void
     {
-        if (! is_dir($directory)) {
+        if (! $fs->directoryExists($directory)) {
             throw new RuntimeException("Directory does not exist: {$directory}");
         }
 
-        $path = $directory . DIRECTORY_SEPARATOR . $type->filename();
-
-        if (file_put_contents($path, $type->payload()) === false) {
-            throw new RuntimeException("Failed to write NAMASTE file: {$path}");
-        }
+        $fs->write($directory . '/' . $type->filename(), $type->payload());
     }
 
-    public static function find(string $directory): ?NamasteType
+    public static function find(Filesystem $fs, string $directory): ?NamasteType
     {
         foreach (NamasteType::cases() as $type) {
-            $path = $directory . DIRECTORY_SEPARATOR . $type->filename();
+            $path = $directory . '/' . $type->filename();
 
-            if (! is_file($path)) {
+            if (! $fs->fileExists($path)) {
                 continue;
             }
 
-            $contents = file_get_contents($path);
+            $contents = $fs->read($path);
 
-            if ($contents === false || rtrim($contents, "\n") !== $type->value) {
-                throw new RuntimeException(
-                    "NAMASTE file is malformed: {$path}",
-                );
+            if (rtrim($contents, "\n") !== $type->value) {
+                throw new RuntimeException("NAMASTE file is malformed: {$path}");
             }
 
             return $type;
         }
 
         return null;
+    }
+
+    public static function local(): Filesystem
+    {
+        return new LocalFilesystem();
     }
 }

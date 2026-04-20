@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Ottosmops\Ocfl;
 
 use DateTimeImmutable;
-use Ottosmops\Ocfl\Internal\Fs;
+use Ottosmops\Ocfl\Filesystem\Filesystem;
 use Ottosmops\Ocfl\Inventory\Inventory;
 use Ottosmops\Ocfl\Inventory\InventorySidecar;
 use Ottosmops\Ocfl\Inventory\InventoryWriter;
@@ -14,6 +14,7 @@ use Ottosmops\Ocfl\Inventory\Version;
 use Ottosmops\Ocfl\Validation\ErrorCode;
 use Ottosmops\Ocfl\Validation\OcflException;
 use RuntimeException;
+use Throwable;
 
 /**
  * Stages changes against an OcflObject's head version and commits them as
@@ -51,10 +52,6 @@ final class VersionBuilder
 
     public function addFile(string $logicalPath, string $sourcePath): self
     {
-        if (! is_file($sourcePath) || ! is_readable($sourcePath)) {
-            throw new RuntimeException("source file not readable: {$sourcePath}");
-        }
-
         $this->pendingAdds[$logicalPath] = new StagedContent(sourcePath: $sourcePath);
 
         return $this;
@@ -105,6 +102,7 @@ final class VersionBuilder
     public function commit(): OcflObject
     {
         $baseInventory = $this->base->inventory;
+        $fs = $this->base->fs;
         $nextVersionName = self::nextVersionName($baseInventory->head);
         $algorithm = $baseInventory->digestAlgorithm;
 
@@ -118,6 +116,7 @@ final class VersionBuilder
             nextVersionName: $nextVersionName,
             contentDirectory: $baseInventory->contentDirectory,
             algorithm: $algorithm,
+            fs: $fs,
         );
 
         if ($this->isNoop($baseState, $newState)) {
@@ -153,6 +152,7 @@ final class VersionBuilder
         );
 
         $this->materialise(
+            fs: $fs,
             objectRoot: $this->base->path,
             versionName: $nextVersionName,
             inventory: $newInventory,
@@ -160,7 +160,7 @@ final class VersionBuilder
             algorithm: $algorithm,
         );
 
-        return OcflObject::open($this->base->path);
+        return OcflObject::open($this->base->path, $fs);
     }
 
     /**
@@ -174,6 +174,7 @@ final class VersionBuilder
         string $nextVersionName,
         string $contentDirectory,
         DigestAlgorithm $algorithm,
+        Filesystem $fs,
     ): array {
         $digestByLogical = self::digestByLogicalPath($baseState);
 
@@ -193,7 +194,7 @@ final class VersionBuilder
         $filesToWrite = [];
 
         foreach ($this->pendingAdds as $logicalPath => $staged) {
-            $digest = $staged->digest($algorithm);
+            $digest = $staged->digest($fs, $algorithm);
             $digestByLogical[$logicalPath] = $digest;
 
             $dedupHit = isset($baseManifest[$digest]) || isset($newManifestAdditions[$digest]);
@@ -270,95 +271,52 @@ final class VersionBuilder
      * @param  array<string, StagedContent>  $filesToWrite
      */
     private function materialise(
+        Filesystem $fs,
         string $objectRoot,
         string $versionName,
         Inventory $inventory,
         array $filesToWrite,
         DigestAlgorithm $algorithm,
     ): void {
-        $versionDir = $objectRoot . DIRECTORY_SEPARATOR . $versionName;
+        $versionDir = $objectRoot . '/' . $versionName;
 
-        if (is_dir($versionDir)) {
+        if ($fs->directoryExists($versionDir)) {
             throw new OcflException(ErrorCode::E001, "version directory already exists: {$versionDir}");
         }
 
         // Stage the version in a sibling temp directory; atomically rename on
         // success so a crash during content-copy leaves only a discardable
         // .tmp-XXXX directory behind, not a half-formed vN/.
-        $stagingDir = $objectRoot . DIRECTORY_SEPARATOR . $versionName . '.tmp-' . bin2hex(random_bytes(4));
-        Fs::ensureDirectory($stagingDir);
+        $stagingDir = $objectRoot . '/' . $versionName . '.tmp-' . bin2hex(random_bytes(4));
+        $fs->createDirectory($stagingDir);
 
         try {
             foreach ($filesToWrite as $relativePath => $staged) {
-                // $relativePath begins with "$versionName/"; redirect to the
-                // staging dir while preserving the inner structure.
-                $staged->writeTo(self::redirectToStaging(
-                    $relativePath,
-                    $versionName,
-                    $stagingDir,
-                    create: true,
-                ));
+                $innerPath = substr($relativePath, strlen($versionName) + 1);
+                $destination = $stagingDir . '/' . $innerPath;
+                $fs->createDirectory(dirname($destination));
+                $staged->writeTo($fs, $destination);
             }
 
             $json = InventoryWriter::toJson($inventory);
-            Fs::writeFile($stagingDir . DIRECTORY_SEPARATOR . Inventory::FILENAME, $json);
-            InventorySidecar::writeFor($stagingDir, $algorithm);
+            $fs->write($stagingDir . '/' . Inventory::FILENAME, $json);
+            InventorySidecar::writeFor($fs, $stagingDir, $algorithm);
 
-            if (! rename($stagingDir, $versionDir)) {
-                throw new OcflException(ErrorCode::E001, "failed to promote staging dir to {$versionDir}");
-            }
-        } catch (\Throwable $e) {
-            self::removeDirectory($stagingDir);
+            $fs->move($stagingDir, $versionDir);
+        } catch (Throwable $e) {
+            $fs->deleteDirectory($stagingDir);
 
             throw $e;
         }
 
         // Root inventory goes last so a crash mid-commit leaves the old head
         // in place, pointing at the previous version directory.
-        $rootInventoryTmp = $objectRoot . DIRECTORY_SEPARATOR . Inventory::FILENAME . '.tmp-' . bin2hex(random_bytes(4));
-        Fs::writeFile($rootInventoryTmp, InventoryWriter::toJson($inventory));
+        $json = InventoryWriter::toJson($inventory);
+        $rootInventoryTmp = $objectRoot . '/' . Inventory::FILENAME . '.tmp-' . bin2hex(random_bytes(4));
+        $fs->write($rootInventoryTmp, $json);
+        $fs->move($rootInventoryTmp, $objectRoot . '/' . Inventory::FILENAME);
 
-        if (! rename($rootInventoryTmp, $objectRoot . DIRECTORY_SEPARATOR . Inventory::FILENAME)) {
-            @unlink($rootInventoryTmp);
-            throw new OcflException(ErrorCode::E001, 'failed to update root inventory');
-        }
-
-        InventorySidecar::writeFor($objectRoot, $algorithm);
-    }
-
-    private static function redirectToStaging(
-        string $relativePath,
-        string $versionName,
-        string $stagingDir,
-        bool $create,
-    ): string {
-        $innerPath = substr($relativePath, strlen($versionName) + 1);
-        $destination = $stagingDir . DIRECTORY_SEPARATOR . $innerPath;
-
-        if ($create) {
-            Fs::ensureDirectory(dirname($destination));
-        }
-
-        return $destination;
-    }
-
-    private static function removeDirectory(string $path): void
-    {
-        if (! is_dir($path)) {
-            return;
-        }
-
-        $iter = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS),
-            \RecursiveIteratorIterator::CHILD_FIRST,
-        );
-
-        foreach ($iter as $entry) {
-            /** @var \SplFileInfo $entry */
-            $entry->isDir() ? @rmdir((string) $entry) : @unlink((string) $entry);
-        }
-
-        @rmdir($path);
+        InventorySidecar::writeFor($fs, $objectRoot, $algorithm);
     }
 
     private static function nextVersionName(string $head): string

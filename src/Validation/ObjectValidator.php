@@ -4,17 +4,15 @@ declare(strict_types=1);
 
 namespace Ottosmops\Ocfl\Validation;
 
-use FilesystemIterator;
 use Ottosmops\Ocfl\Digest;
 use Ottosmops\Ocfl\DigestAlgorithm;
+use Ottosmops\Ocfl\Filesystem\Filesystem;
+use Ottosmops\Ocfl\Filesystem\LocalFilesystem;
 use Ottosmops\Ocfl\Inventory\Inventory;
 use Ottosmops\Ocfl\Inventory\InventoryReader;
 use Ottosmops\Ocfl\Inventory\InventorySidecar;
 use Ottosmops\Ocfl\Namaste;
 use Ottosmops\Ocfl\NamasteType;
-use RecursiveDirectoryIterator;
-use RecursiveIteratorIterator;
-use SplFileInfo;
 use Throwable;
 
 /**
@@ -29,45 +27,46 @@ final class ObjectValidator
 {
     private const ALLOWED_ROOT_NAMES = ['inventory.json', '0=ocfl_object_1.1', 'extensions', 'logs'];
 
-    public function validate(string $objectRoot): ValidationReport
+    public function validate(string $objectRoot, ?Filesystem $fs = null): ValidationReport
     {
+        $fs ??= new LocalFilesystem();
         $report = new ValidationReport();
 
-        if (! is_dir($objectRoot)) {
+        if (! $fs->directoryExists($objectRoot)) {
             $report->addError(ErrorCode::E003, "object root does not exist: {$objectRoot}");
 
             return $report;
         }
 
-        if ((new FilesystemIterator($objectRoot))->valid() === false) {
+        if ($fs->listDirectory($objectRoot) === []) {
             $report->addError(ErrorCode::E003, 'object root is empty');
 
             return $report;
         }
 
-        $this->checkNamaste($objectRoot, $report);
-        $inventory = $this->loadAndValidateRootInventory($objectRoot, $report);
+        $this->checkNamaste($fs, $objectRoot, $report);
+        $inventory = $this->loadAndValidateRootInventory($fs, $objectRoot, $report);
 
         if ($inventory === null) {
             return $report;
         }
 
-        $this->checkRootLayout($objectRoot, $inventory, $report);
-        $this->checkVersionDirectories($objectRoot, $inventory, $report);
-        $this->checkVersionInventories($objectRoot, $inventory, $report);
-        $this->checkContentFilesAgainstManifest($objectRoot, $inventory, $report);
+        $this->checkRootLayout($fs, $objectRoot, $inventory, $report);
+        $this->checkVersionDirectories($fs, $objectRoot, $inventory, $report);
+        $this->checkVersionInventories($fs, $objectRoot, $inventory, $report);
+        $this->checkContentFilesAgainstManifest($fs, $objectRoot, $inventory, $report);
         $this->checkLogicalPathFormat($inventory, $report);
         $this->checkLogicalPathUniqueness($inventory, $report);
         $this->checkManifestCoverage($inventory, $report);
-        $this->emitWarnings($objectRoot, $inventory, $report);
+        $this->emitWarnings($inventory, $report);
 
         return $report;
     }
 
-    private function checkNamaste(string $objectRoot, ValidationReport $report): void
+    private function checkNamaste(Filesystem $fs, string $objectRoot, ValidationReport $report): void
     {
         try {
-            $namaste = Namaste::find($objectRoot);
+            $namaste = Namaste::find($fs, $objectRoot);
         } catch (Throwable $e) {
             $report->addError(ErrorCode::E007, $e->getMessage());
 
@@ -85,41 +84,41 @@ final class ObjectValidator
         }
     }
 
-    private function loadAndValidateRootInventory(string $objectRoot, ValidationReport $report): ?Inventory
+    private function loadAndValidateRootInventory(Filesystem $fs, string $objectRoot, ValidationReport $report): ?Inventory
     {
-        $inventoryPath = $objectRoot . DIRECTORY_SEPARATOR . Inventory::FILENAME;
+        $inventoryPath = $objectRoot . '/' . Inventory::FILENAME;
 
-        if (! is_file($inventoryPath)) {
+        if (! $fs->fileExists($inventoryPath)) {
             $report->addError(ErrorCode::E063, 'root inventory.json missing');
 
             return null;
         }
 
         try {
-            $inventory = InventoryReader::fromFile($inventoryPath);
+            $inventory = InventoryReader::fromFilesystem($fs, $inventoryPath);
         } catch (OcflException $e) {
             $report->addError($e->errorCode, $e->getMessage());
 
             return null;
         }
 
-        $this->checkSidecar($objectRoot, $inventory, $report);
+        $this->checkSidecar($fs, $objectRoot, $inventory, $report);
 
         return $inventory;
     }
 
-    private function checkSidecar(string $directory, Inventory $inventory, ValidationReport $report): void
+    private function checkSidecar(Filesystem $fs, string $directory, Inventory $inventory, ValidationReport $report): void
     {
-        $sidecarPath = $directory . DIRECTORY_SEPARATOR . InventorySidecar::filename($inventory->digestAlgorithm);
+        $sidecarPath = $directory . '/' . InventorySidecar::filename($inventory->digestAlgorithm);
 
-        if (! is_file($sidecarPath)) {
+        if (! $fs->fileExists($sidecarPath)) {
             $report->addError(ErrorCode::E058, "sidecar missing: {$sidecarPath}");
 
             return;
         }
 
         try {
-            if (! InventorySidecar::verify($directory, $inventory->digestAlgorithm)) {
+            if (! InventorySidecar::verify($fs, $directory, $inventory->digestAlgorithm)) {
                 $report->addError(ErrorCode::E060, 'sidecar digest does not match inventory.json', $sidecarPath);
             }
         } catch (OcflException $e) {
@@ -127,52 +126,43 @@ final class ObjectValidator
         }
     }
 
-    private function checkRootLayout(string $objectRoot, Inventory $inventory, ValidationReport $report): void
+    private function checkRootLayout(Filesystem $fs, string $objectRoot, Inventory $inventory, ValidationReport $report): void
     {
         $versionPattern = '/^v\d+$/';
         $sidecarFilename = InventorySidecar::filename($inventory->digestAlgorithm);
 
-        foreach (new FilesystemIterator($objectRoot, FilesystemIterator::SKIP_DOTS) as $entry) {
-            /** @var SplFileInfo $entry */
-            $name = $entry->getFilename();
-
-            if (in_array($name, self::ALLOWED_ROOT_NAMES, true)) {
+        foreach ($fs->listDirectory($objectRoot) as $name) {
+            if (in_array($name, self::ALLOWED_ROOT_NAMES, true) || $name === $sidecarFilename) {
                 continue;
             }
 
-            if ($name === $sidecarFilename) {
-                continue;
-            }
+            $entryPath = $objectRoot . '/' . $name;
+            $isDir = $fs->directoryExists($entryPath);
 
-            if ($entry->isDir() && preg_match($versionPattern, $name) === 1) {
-                continue;
-            }
-
-            if ($entry->isFile() && $name === $sidecarFilename) {
+            if ($isDir && preg_match($versionPattern, $name) === 1) {
                 continue;
             }
 
             $report->addError(
                 ErrorCode::E001,
-                $entry->isDir()
+                $isDir
                     ? "unexpected directory in object root: {$name}"
                     : "unexpected file in object root: {$name}",
                 $name,
             );
         }
 
-        $extensionsPath = $objectRoot . DIRECTORY_SEPARATOR . 'extensions';
-        if (is_dir($extensionsPath)) {
-            foreach (new FilesystemIterator($extensionsPath, FilesystemIterator::SKIP_DOTS) as $ext) {
-                /** @var SplFileInfo $ext */
-                if (! $ext->isDir()) {
-                    $report->addError(ErrorCode::E067, "extensions/ contains non-directory: {$ext->getFilename()}");
+        $extensionsPath = $objectRoot . '/extensions';
+        if ($fs->directoryExists($extensionsPath)) {
+            foreach ($fs->listDirectory($extensionsPath) as $name) {
+                if (! $fs->directoryExists($extensionsPath . '/' . $name)) {
+                    $report->addError(ErrorCode::E067, "extensions/ contains non-directory: {$name}");
                 }
             }
         }
     }
 
-    private function checkVersionDirectories(string $objectRoot, Inventory $inventory, ValidationReport $report): void
+    private function checkVersionDirectories(Filesystem $fs, string $objectRoot, Inventory $inventory, ValidationReport $report): void
     {
         $versionNames = array_keys($inventory->versions);
 
@@ -215,56 +205,95 @@ final class ObjectValidator
         }
 
         foreach ($versionNames as $versionName) {
-            $versionPath = $objectRoot . DIRECTORY_SEPARATOR . $versionName;
-            if (! is_dir($versionPath)) {
+            $versionPath = $objectRoot . '/' . $versionName;
+            if (! $fs->directoryExists($versionPath)) {
                 $report->addError(ErrorCode::E010, "version directory missing on disk: {$versionName}");
 
                 continue;
             }
 
-            $versionInventoryPath = $versionPath . DIRECTORY_SEPARATOR . Inventory::FILENAME;
-            if (! is_file($versionInventoryPath)) {
+            $versionInventoryPath = $versionPath . '/' . Inventory::FILENAME;
+            if (! $fs->fileExists($versionInventoryPath)) {
                 $report->addWarning(ErrorCode::W010, 'version directory has no inventory.json', $versionName);
             }
         }
     }
 
-    private function checkContentFilesAgainstManifest(string $objectRoot, Inventory $inventory, ValidationReport $report): void
+    private function checkVersionInventories(Filesystem $fs, string $objectRoot, Inventory $inventory, ValidationReport $report): void
+    {
+        foreach (array_keys($inventory->versions) as $versionName) {
+            $versionInventoryPath = $objectRoot . '/' . $versionName . '/' . Inventory::FILENAME;
+            if (! $fs->fileExists($versionInventoryPath)) {
+                continue;
+            }
+
+            try {
+                $versionInventory = InventoryReader::fromFilesystem($fs, $versionInventoryPath);
+            } catch (OcflException $e) {
+                $report->addError($e->errorCode, $e->getMessage(), $versionName);
+
+                continue;
+            }
+
+            if ($versionInventory->id !== $inventory->id) {
+                $report->addError(
+                    ErrorCode::E037,
+                    "version inventory id '{$versionInventory->id}' differs from root id '{$inventory->id}'",
+                    $versionName,
+                );
+            }
+
+            if ($versionInventory->type !== $inventory->type) {
+                $report->addError(
+                    ErrorCode::E103,
+                    "version inventory type '{$versionInventory->type}' differs from root type '{$inventory->type}'",
+                    $versionName,
+                );
+            }
+        }
+
+        $headVersionInventoryPath = $objectRoot . '/' . $inventory->head . '/' . Inventory::FILENAME;
+
+        if ($fs->fileExists($headVersionInventoryPath)) {
+            $rootJson = $fs->read($objectRoot . '/' . Inventory::FILENAME);
+            $headJson = $fs->read($headVersionInventoryPath);
+
+            if ($rootJson !== $headJson) {
+                $report->addError(
+                    ErrorCode::E064,
+                    'root inventory does not match head version inventory byte-for-byte',
+                    $inventory->head,
+                );
+            }
+        }
+    }
+
+    private function checkContentFilesAgainstManifest(Filesystem $fs, string $objectRoot, Inventory $inventory, ValidationReport $report): void
     {
         $contentDir = $inventory->contentDirectory;
         $onDisk = [];
 
         foreach (array_keys($inventory->versions) as $versionName) {
-            $versionContent = $objectRoot . DIRECTORY_SEPARATOR . $versionName . DIRECTORY_SEPARATOR . $contentDir;
-            if (! is_dir($versionContent)) {
-                continue;
-            }
+            $versionContent = $objectRoot . '/' . $versionName . '/' . $contentDir;
 
-            $iter = new RecursiveIteratorIterator(
-                new RecursiveDirectoryIterator($versionContent, FilesystemIterator::SKIP_DOTS),
-            );
-            foreach ($iter as $file) {
-                /** @var SplFileInfo $file */
-                if (! $file->isFile()) {
-                    continue;
-                }
-                $relative = substr($file->getPathname(), strlen($objectRoot) + 1);
-                $onDisk[str_replace(DIRECTORY_SEPARATOR, '/', $relative)] = $file->getPathname();
+            foreach ($fs->listFilesRecursively($versionContent) as $relative) {
+                $onDisk[$versionName . '/' . $contentDir . '/' . $relative] =
+                    $versionContent . '/' . $relative;
             }
 
             // Flag files under the version directory but outside contentDirectory.
-            $versionPath = $objectRoot . DIRECTORY_SEPARATOR . $versionName;
-            foreach (new FilesystemIterator($versionPath, FilesystemIterator::SKIP_DOTS) as $entry) {
-                /** @var SplFileInfo $entry */
-                $name = $entry->getFilename();
+            $versionPath = $objectRoot . '/' . $versionName;
+            if (! $fs->directoryExists($versionPath)) {
+                continue;
+            }
+            foreach ($fs->listDirectory($versionPath) as $name) {
                 if ($name === $contentDir) {
                     continue;
                 }
                 if ($name === Inventory::FILENAME || $name === InventorySidecar::filename($inventory->digestAlgorithm)) {
                     continue;
                 }
-                if ($entry->isDir()) {
-                    // Extra directory within version that isn't contentDirectory.
+                if ($fs->directoryExists($versionPath . '/' . $name)) {
                     $report->addError(
                         ErrorCode::E015,
                         "file or directory outside contentDirectory: {$versionName}/{$name}",
@@ -288,7 +317,7 @@ final class ObjectValidator
                 continue;
             }
 
-            $actual = Digest::ofFile($absolute, $inventory->digestAlgorithm);
+            $actual = $fs->digestFile($absolute, $inventory->digestAlgorithm);
             if (! Digest::equals($actual, $manifestPaths[$relative])) {
                 $report->addError(ErrorCode::E092, "content digest mismatch for {$relative}", $relative);
             }
@@ -315,56 +344,6 @@ final class ObjectValidator
                     );
                     break;
                 }
-            }
-        }
-    }
-
-    private function checkVersionInventories(string $objectRoot, Inventory $inventory, ValidationReport $report): void
-    {
-        foreach (array_keys($inventory->versions) as $versionName) {
-            $versionInventoryPath = $objectRoot . DIRECTORY_SEPARATOR . $versionName . DIRECTORY_SEPARATOR . Inventory::FILENAME;
-            if (! is_file($versionInventoryPath)) {
-                continue;
-            }
-
-            try {
-                $versionInventory = InventoryReader::fromFile($versionInventoryPath);
-            } catch (OcflException $e) {
-                $report->addError($e->errorCode, $e->getMessage(), $versionName);
-
-                continue;
-            }
-
-            if ($versionInventory->id !== $inventory->id) {
-                $report->addError(
-                    ErrorCode::E037,
-                    "version inventory id '{$versionInventory->id}' differs from root id '{$inventory->id}'",
-                    $versionName,
-                );
-            }
-
-            if ($versionInventory->type !== $inventory->type) {
-                $report->addError(
-                    ErrorCode::E103,
-                    "version inventory type '{$versionInventory->type}' differs from root type '{$inventory->type}'",
-                    $versionName,
-                );
-            }
-        }
-
-        $headVersionInventoryPath = $objectRoot . DIRECTORY_SEPARATOR . $inventory->head
-            . DIRECTORY_SEPARATOR . Inventory::FILENAME;
-
-        if (is_file($headVersionInventoryPath)) {
-            $rootJson = (string) file_get_contents($objectRoot . DIRECTORY_SEPARATOR . Inventory::FILENAME);
-            $headJson = (string) file_get_contents($headVersionInventoryPath);
-
-            if ($rootJson !== $headJson) {
-                $report->addError(
-                    ErrorCode::E064,
-                    'root inventory does not match head version inventory byte-for-byte',
-                    $inventory->head,
-                );
             }
         }
     }
@@ -440,7 +419,7 @@ final class ObjectValidator
         }
     }
 
-    private function emitWarnings(string $objectRoot, Inventory $inventory, ValidationReport $report): void
+    private function emitWarnings(Inventory $inventory, ValidationReport $report): void
     {
         if ($inventory->digestAlgorithm === DigestAlgorithm::Sha256) {
             $report->addWarning(ErrorCode::W004, 'object uses sha256; sha512 is recommended');

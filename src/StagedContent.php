@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ottosmops\Ocfl;
 
+use Ottosmops\Ocfl\Filesystem\Filesystem;
 use RuntimeException;
 
 /**
@@ -21,25 +22,21 @@ final readonly class StagedContent
         }
     }
 
-    public function digest(DigestAlgorithm $algorithm): string
+    public function digest(Filesystem $fs, DigestAlgorithm $algorithm): string
     {
         return $this->sourcePath !== null
-            ? Digest::ofFile($this->sourcePath, $algorithm)
+            ? $fs->digestFile($this->sourcePath, $algorithm)
             : Digest::ofString($this->inlineBytes ?? '', $algorithm);
     }
 
-    public function writeTo(string $destination): void
+    public function writeTo(Filesystem $fs, string $destination): void
     {
         if ($this->sourcePath !== null) {
-            if (! copy($this->sourcePath, $destination)) {
-                throw new RuntimeException("failed to copy {$this->sourcePath} to {$destination}");
-            }
+            $fs->copy($this->sourcePath, $destination);
 
             return;
         }
 
-        if (file_put_contents($destination, $this->inlineBytes ?? '') === false) {
-            throw new RuntimeException("failed to write inline bytes to {$destination}");
-        }
+        $fs->write($destination, $this->inlineBytes ?? '');
     }
 }

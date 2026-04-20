@@ -4,16 +4,15 @@ declare(strict_types=1);
 
 namespace Ottosmops\Ocfl\Storage;
 
-use FilesystemIterator;
 use JsonException;
 use Ottosmops\Ocfl\DigestAlgorithm;
-use Ottosmops\Ocfl\Internal\Fs;
+use Ottosmops\Ocfl\Filesystem\Filesystem;
+use Ottosmops\Ocfl\Filesystem\LocalFilesystem;
 use Ottosmops\Ocfl\Namaste;
 use Ottosmops\Ocfl\NamasteType;
 use Ottosmops\Ocfl\OcflObject;
 use Ottosmops\Ocfl\Validation\ErrorCode;
 use Ottosmops\Ocfl\Validation\OcflException;
-use SplFileInfo;
 
 /**
  * An OCFL 1.1 Storage Root (spec §3).
@@ -30,18 +29,20 @@ final class StorageRoot
     private function __construct(
         public readonly string $path,
         private readonly StorageLayout $layout,
+        private readonly Filesystem $fs,
     ) {
     }
 
-    public static function create(string $path, StorageLayout $layout): self
+    public static function create(string $path, StorageLayout $layout, ?Filesystem $fs = null): self
     {
-        Fs::ensureDirectory($path);
+        $fs ??= new LocalFilesystem();
+        $fs->createDirectory($path);
 
-        if ((new FilesystemIterator($path))->valid()) {
+        if ($fs->listDirectory($path) !== []) {
             throw new OcflException(ErrorCode::E001, "storage root {$path} is not empty");
         }
 
-        Namaste::write($path, NamasteType::StorageRoot);
+        Namaste::write($fs, $path, NamasteType::StorageRoot);
 
         $config = $layout->configuration();
         try {
@@ -50,40 +51,37 @@ final class StorageRoot
             throw new OcflException(ErrorCode::E001, 'failed to encode layout config', $e);
         }
 
-        Fs::writeFile($path . DIRECTORY_SEPARATOR . self::LAYOUT_FILENAME, $json . "\n");
+        $fs->write($path . '/' . self::LAYOUT_FILENAME, $json . "\n");
 
-        return new self($path, $layout);
+        return new self($path, $layout, $fs);
     }
 
-    public static function open(string $path): self
+    public static function open(string $path, ?Filesystem $fs = null): self
     {
-        if (! is_dir($path)) {
+        $fs ??= new LocalFilesystem();
+
+        if (! $fs->directoryExists($path)) {
             throw new OcflException(ErrorCode::E003, "storage root does not exist: {$path}");
         }
 
-        if (Namaste::find($path) !== NamasteType::StorageRoot) {
+        if (Namaste::find($fs, $path) !== NamasteType::StorageRoot) {
             throw new OcflException(
                 ErrorCode::E003,
                 "storage root NAMASTE declaration missing in {$path}",
             );
         }
 
-        $layoutPath = $path . DIRECTORY_SEPARATOR . self::LAYOUT_FILENAME;
-        if (! is_file($layoutPath)) {
+        $layoutPath = $path . '/' . self::LAYOUT_FILENAME;
+        if (! $fs->fileExists($layoutPath)) {
             throw new OcflException(
                 ErrorCode::E070,
                 "ocfl_layout.json missing in storage root {$path}",
             );
         }
 
-        $raw = file_get_contents($layoutPath);
-        if ($raw === false) {
-            throw new OcflException(ErrorCode::E070, "unable to read {$layoutPath}");
-        }
-
         try {
             /** @var mixed $decoded */
-            $decoded = json_decode($raw, true, flags: JSON_THROW_ON_ERROR);
+            $decoded = json_decode($fs->read($layoutPath), true, flags: JSON_THROW_ON_ERROR);
         } catch (JsonException $e) {
             throw new OcflException(ErrorCode::E070, 'ocfl_layout.json is not valid JSON', $e);
         }
@@ -93,7 +91,7 @@ final class StorageRoot
         }
 
         /** @var array<array-key, mixed> $decoded */
-        return new self($path, self::layoutFromConfig($decoded));
+        return new self($path, self::layoutFromConfig($decoded), $fs);
     }
 
     public function layout(): StorageLayout
@@ -105,34 +103,31 @@ final class StorageRoot
     {
         $objectPath = $this->pathFor($id);
 
-        if (is_dir($objectPath)) {
+        if ($this->fs->directoryExists($objectPath)) {
             throw new OcflException(
                 ErrorCode::E001,
                 "object '{$id}' already exists at {$objectPath}",
             );
         }
 
-        return OcflObject::create($objectPath, $id, $digestAlgorithm);
+        return OcflObject::create($objectPath, $id, $digestAlgorithm, $this->fs);
     }
 
     public function getObject(string $id): OcflObject
     {
-        return OcflObject::open($this->pathFor($id));
+        return OcflObject::open($this->pathFor($id), $this->fs);
     }
 
     public function hasObject(string $id): bool
     {
         $path = $this->pathFor($id);
 
-        return is_dir($path) && Namaste::find($path) === NamasteType::ObjectRoot;
+        return $this->fs->directoryExists($path)
+            && Namaste::find($this->fs, $path) === NamasteType::ObjectRoot;
     }
 
     /**
      * Walk the storage root and return every OCFL object id found.
-     *
-     * Implementation note: the spec lets object roots appear at any depth,
-     * so we walk the tree and stop descending at each object-root boundary
-     * (an object root must not contain another object root).
      *
      * @return list<string>
      */
@@ -146,7 +141,7 @@ final class StorageRoot
 
     private function pathFor(string $id): string
     {
-        return $this->path . DIRECTORY_SEPARATOR . $this->layout->resolveObjectPath($id);
+        return $this->path . '/' . $this->layout->resolveObjectPath($id);
     }
 
     /**
@@ -155,16 +150,16 @@ final class StorageRoot
      */
     private function collectObjectsBelow(string $directory, array &$ids): void
     {
-        if (Namaste::find($directory) === NamasteType::ObjectRoot) {
-            $ids[] = OcflObject::open($directory)->id();
+        if (Namaste::find($this->fs, $directory) === NamasteType::ObjectRoot) {
+            $ids[] = OcflObject::open($directory, $this->fs)->id();
 
             return;
         }
 
-        foreach (new FilesystemIterator($directory, FilesystemIterator::SKIP_DOTS) as $entry) {
-            /** @var SplFileInfo $entry */
-            if ($entry->isDir()) {
-                $this->collectObjectsBelow($entry->getPathname(), $ids);
+        foreach ($this->fs->listDirectory($directory) as $name) {
+            $entryPath = $directory . '/' . $name;
+            if ($this->fs->directoryExists($entryPath)) {
+                $this->collectObjectsBelow($entryPath, $ids);
             }
         }
     }

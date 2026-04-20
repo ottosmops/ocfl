@@ -28,7 +28,7 @@ test('round-trips a minimal fixture without data loss', function (): void {
 });
 
 test('produces sorted top-level keys for byte-stable output', function (): void {
-    $inv = InventoryReader::fromFile(goodFixtureForWriter('minimal_one_version_one_file'));
+    $inv = InventoryReader::fromFilesystem(new Ottosmops\Ocfl\Filesystem\LocalFilesystem(), goodFixtureForWriter('minimal_one_version_one_file'));
     $json = InventoryWriter::toJson($inv);
 
     /** @var array<string, mixed> $decoded */
@@ -42,7 +42,7 @@ test('produces sorted top-level keys for byte-stable output', function (): void 
 });
 
 test('produces sorted manifest and state digest keys', function (): void {
-    $inv = InventoryReader::fromFile(goodFixtureForWriter('spec-ex-full'));
+    $inv = InventoryReader::fromFilesystem(new Ottosmops\Ocfl\Filesystem\LocalFilesystem(), goodFixtureForWriter('spec-ex-full'));
     $json = InventoryWriter::toJson($inv);
 
     /** @var array{manifest: array<string, mixed>, versions: array<string, array{state: array<string, mixed>}>} $decoded */
@@ -62,21 +62,21 @@ test('produces sorted manifest and state digest keys', function (): void {
 });
 
 test('omits contentDirectory when it equals the default', function (): void {
-    $inv = InventoryReader::fromFile(goodFixtureForWriter('minimal_one_version_one_file'));
+    $inv = InventoryReader::fromFilesystem(new Ottosmops\Ocfl\Filesystem\LocalFilesystem(), goodFixtureForWriter('minimal_one_version_one_file'));
     $json = InventoryWriter::toJson($inv);
 
     expect($json)->not->toContain('"contentDirectory"');
 });
 
 test('emits contentDirectory when it differs from default', function (): void {
-    $inv = InventoryReader::fromFile(goodFixtureForWriter('minimal_content_dir_called_stuff'));
+    $inv = InventoryReader::fromFilesystem(new Ottosmops\Ocfl\Filesystem\LocalFilesystem(), goodFixtureForWriter('minimal_content_dir_called_stuff'));
     $json = InventoryWriter::toJson($inv);
 
     expect($json)->toContain('"contentDirectory": "stuff"');
 });
 
 test('omits user when null', function (): void {
-    $inv = InventoryReader::fromFile(goodFixtureForWriter('minimal_no_content'));
+    $inv = InventoryReader::fromFilesystem(new Ottosmops\Ocfl\Filesystem\LocalFilesystem(), goodFixtureForWriter('minimal_no_content'));
     $json = InventoryWriter::toJson($inv);
 
     // whether or not this fixture has user, re-read and verify consistent absence/presence
@@ -89,14 +89,14 @@ test('omits user when null', function (): void {
 });
 
 test('formats created timestamps as RFC3339 UTC', function (): void {
-    $inv = InventoryReader::fromFile(goodFixtureForWriter('minimal_one_version_one_file'));
+    $inv = InventoryReader::fromFilesystem(new Ottosmops\Ocfl\Filesystem\LocalFilesystem(), goodFixtureForWriter('minimal_one_version_one_file'));
     $json = InventoryWriter::toJson($inv);
 
     expect($json)->toContain('"created": "2019-01-01T02:03:04Z"');
 });
 
 test('output has trailing newline', function (): void {
-    $inv = InventoryReader::fromFile(goodFixtureForWriter('minimal_one_version_one_file'));
+    $inv = InventoryReader::fromFilesystem(new Ottosmops\Ocfl\Filesystem\LocalFilesystem(), goodFixtureForWriter('minimal_one_version_one_file'));
     $json = InventoryWriter::toJson($inv);
 
     expect(substr($json, -1))->toBe("\n");

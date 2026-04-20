@@ -38,7 +38,7 @@ test('writes sidecar with digest and filename separated by space', function (): 
     try {
         file_put_contents($dir . '/inventory.json', '{"id":"test"}');
 
-        $sidecarPath = InventorySidecar::writeFor($dir, DigestAlgorithm::Sha512);
+        $sidecarPath = InventorySidecar::writeFor(new Ottosmops\Ocfl\Filesystem\LocalFilesystem(), $dir, DigestAlgorithm::Sha512);
         $contents = (string) file_get_contents($sidecarPath);
 
         $expectedDigest = hash('sha512', '{"id":"test"}');
@@ -53,9 +53,9 @@ test('verifies a valid sidecar against the inventory file', function (): void {
 
     try {
         file_put_contents($dir . '/inventory.json', 'some content');
-        InventorySidecar::writeFor($dir, DigestAlgorithm::Sha512);
+        InventorySidecar::writeFor(new Ottosmops\Ocfl\Filesystem\LocalFilesystem(), $dir, DigestAlgorithm::Sha512);
 
-        expect(InventorySidecar::verify($dir, DigestAlgorithm::Sha512))->toBeTrue();
+        expect(InventorySidecar::verify(new Ottosmops\Ocfl\Filesystem\LocalFilesystem(), $dir, DigestAlgorithm::Sha512))->toBeTrue();
     } finally {
         cleanupDir($dir);
     }
@@ -66,11 +66,11 @@ test('reports verification failure when inventory changes after sidecar', functi
 
     try {
         file_put_contents($dir . '/inventory.json', 'original');
-        InventorySidecar::writeFor($dir, DigestAlgorithm::Sha512);
+        InventorySidecar::writeFor(new Ottosmops\Ocfl\Filesystem\LocalFilesystem(), $dir, DigestAlgorithm::Sha512);
 
         file_put_contents($dir . '/inventory.json', 'tampered');
 
-        expect(InventorySidecar::verify($dir, DigestAlgorithm::Sha512))->toBeFalse();
+        expect(InventorySidecar::verify(new Ottosmops\Ocfl\Filesystem\LocalFilesystem(), $dir, DigestAlgorithm::Sha512))->toBeFalse();
     } finally {
         cleanupDir($dir);
     }
@@ -78,7 +78,7 @@ test('reports verification failure when inventory changes after sidecar', functi
 
 test('reads digest from real OCFL fixture sidecar', function (): void {
     $fixture = __DIR__ . '/../fixtures/ocfl/1.1/good-objects/minimal_one_version_one_file';
-    $digest = InventorySidecar::readDigest($fixture, DigestAlgorithm::Sha512);
+    $digest = InventorySidecar::readDigest(new Ottosmops\Ocfl\Filesystem\LocalFilesystem(), $fixture, DigestAlgorithm::Sha512);
 
     expect($digest)->toHaveLength(128) // sha512 hex
         ->and(Digest::equals($digest, Digest::ofFile($fixture . '/inventory.json', DigestAlgorithm::Sha512)))
@@ -90,7 +90,7 @@ test('throws when sidecar file is missing', function (): void {
 
     try {
         try {
-            InventorySidecar::readDigest($dir, DigestAlgorithm::Sha512);
+            InventorySidecar::readDigest(new Ottosmops\Ocfl\Filesystem\LocalFilesystem(), $dir, DigestAlgorithm::Sha512);
         } catch (OcflException $e) {
             expect($e->errorCode)->toBe(ErrorCode::E058);
 
@@ -110,7 +110,7 @@ test('throws when sidecar is malformed', function (): void {
         file_put_contents($dir . '/inventory.json.sha512', "garbage without filename\n");
 
         try {
-            InventorySidecar::readDigest($dir, DigestAlgorithm::Sha512);
+            InventorySidecar::readDigest(new Ottosmops\Ocfl\Filesystem\LocalFilesystem(), $dir, DigestAlgorithm::Sha512);
             throw new RuntimeException('expected OcflException');
         } catch (OcflException $e) {
             expect($e)->toBeInstanceOf(OcflException::class);

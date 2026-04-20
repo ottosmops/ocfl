@@ -40,7 +40,7 @@ test('writes namaste declaration to a directory', function (): void {
     $tmp = makeTempDir();
 
     try {
-        Namaste::write($tmp, NamasteType::ObjectRoot);
+        Namaste::write(new Ottosmops\Ocfl\Filesystem\LocalFilesystem(), $tmp, NamasteType::ObjectRoot);
 
         $path = $tmp . '/0=ocfl_object_1.1';
         expect(is_file($path))->toBeTrue()
@@ -54,8 +54,8 @@ test('detects existing namaste in a directory', function (): void {
     $tmp = makeTempDir();
 
     try {
-        Namaste::write($tmp, NamasteType::StorageRoot);
-        expect(Namaste::find($tmp))->toBe(NamasteType::StorageRoot);
+        Namaste::write(new Ottosmops\Ocfl\Filesystem\LocalFilesystem(), $tmp, NamasteType::StorageRoot);
+        expect(Namaste::find(new Ottosmops\Ocfl\Filesystem\LocalFilesystem(), $tmp))->toBe(NamasteType::StorageRoot);
     } finally {
         cleanupTempDir($tmp);
     }
@@ -65,7 +65,7 @@ test('returns null when no namaste file is present', function (): void {
     $tmp = makeTempDir();
 
     try {
-        expect(Namaste::find($tmp))->toBeNull();
+        expect(Namaste::find(new Ottosmops\Ocfl\Filesystem\LocalFilesystem(), $tmp))->toBeNull();
     } finally {
         cleanupTempDir($tmp);
     }
@@ -74,7 +74,7 @@ test('returns null when no namaste file is present', function (): void {
 test('reads a real ocfl fixture object namaste', function (): void {
     $fixture = __DIR__ . '/../fixtures/ocfl/1.1/good-objects/minimal_one_version_one_file';
 
-    expect(Namaste::find($fixture))->toBe(NamasteType::ObjectRoot);
+    expect(Namaste::find(new Ottosmops\Ocfl\Filesystem\LocalFilesystem(), $fixture))->toBe(NamasteType::ObjectRoot);
 });
 
 test('rejects namaste with mismatched payload', function (): void {
@@ -82,7 +82,7 @@ test('rejects namaste with mismatched payload', function (): void {
 
     try {
         file_put_contents($tmp . '/0=ocfl_object_1.1', "something_else\n");
-        expect(fn () => Namaste::find($tmp))
+        expect(fn () => Namaste::find(new Ottosmops\Ocfl\Filesystem\LocalFilesystem(), $tmp))
             ->toThrow(RuntimeException::class, 'malformed');
     } finally {
         cleanupTempDir($tmp);
