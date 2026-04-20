@@ -9,3 +9,4 @@ composer.lock
 .vscode/
 .DS_Store
 .phpunit.result.cache
+.claude/
