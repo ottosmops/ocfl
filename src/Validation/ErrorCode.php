@@ -38,6 +38,9 @@ enum ErrorCode: string
     case E058 = 'E058'; // Inventory sidecar missing or malformed
     case E060 = 'E060'; // Inventory sidecar digest does not match inventory
 
+    // Content / manifest integrity
+    case E092 = 'E092'; // Content file digest does not match manifest
+
     // Version block
     case E048 = 'E048'; // Version block missing required property
     case E049 = 'E049'; // created field malformed
