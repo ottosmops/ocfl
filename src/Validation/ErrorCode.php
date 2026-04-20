@@ -26,10 +26,14 @@ enum ErrorCode: string
     case E019 = 'E019'; // Inconsistent contentDirectory across versions
     case E023 = 'E023'; // Content file missing from or extra vs. manifest
     case E046 = 'E046'; // Root inventory not from the most recent version
+    case E052 = 'E052'; // Logical path contains . or .. segments
+    case E053 = 'E053'; // Logical path is absolute or has leading slash
     case E063 = 'E063'; // Missing root inventory
     case E064 = 'E064'; // Root inventory differs from head version inventory
     case E067 = 'E067'; // extensions/ contains non-directory
     case E095 = 'E095'; // Conflicting or non-unique logical paths
+    case E103 = 'E103'; // Version inventory declares an older spec version
+    case E107 = 'E107'; // Manifest entry not referenced by any version state
 
     // Inventory structure
     case E033 = 'E033'; // Inventory not valid JSON

@@ -54,8 +54,11 @@ final class ObjectValidator
 
         $this->checkRootLayout($objectRoot, $inventory, $report);
         $this->checkVersionDirectories($objectRoot, $inventory, $report);
+        $this->checkVersionInventories($objectRoot, $inventory, $report);
         $this->checkContentFilesAgainstManifest($objectRoot, $inventory, $report);
+        $this->checkLogicalPathFormat($inventory, $report);
         $this->checkLogicalPathUniqueness($inventory, $report);
+        $this->checkManifestCoverage($inventory, $report);
         $this->emitWarnings($objectRoot, $inventory, $report);
 
         return $report;
@@ -312,6 +315,106 @@ final class ObjectValidator
                     );
                     break;
                 }
+            }
+        }
+    }
+
+    private function checkVersionInventories(string $objectRoot, Inventory $inventory, ValidationReport $report): void
+    {
+        foreach (array_keys($inventory->versions) as $versionName) {
+            $versionInventoryPath = $objectRoot . DIRECTORY_SEPARATOR . $versionName . DIRECTORY_SEPARATOR . Inventory::FILENAME;
+            if (! is_file($versionInventoryPath)) {
+                continue;
+            }
+
+            try {
+                $versionInventory = InventoryReader::fromFile($versionInventoryPath);
+            } catch (OcflException $e) {
+                $report->addError($e->errorCode, $e->getMessage(), $versionName);
+
+                continue;
+            }
+
+            if ($versionInventory->id !== $inventory->id) {
+                $report->addError(
+                    ErrorCode::E037,
+                    "version inventory id '{$versionInventory->id}' differs from root id '{$inventory->id}'",
+                    $versionName,
+                );
+            }
+
+            if ($versionInventory->type !== $inventory->type) {
+                $report->addError(
+                    ErrorCode::E103,
+                    "version inventory type '{$versionInventory->type}' differs from root type '{$inventory->type}'",
+                    $versionName,
+                );
+            }
+        }
+
+        $headVersionInventoryPath = $objectRoot . DIRECTORY_SEPARATOR . $inventory->head
+            . DIRECTORY_SEPARATOR . Inventory::FILENAME;
+
+        if (is_file($headVersionInventoryPath)) {
+            $rootJson = (string) file_get_contents($objectRoot . DIRECTORY_SEPARATOR . Inventory::FILENAME);
+            $headJson = (string) file_get_contents($headVersionInventoryPath);
+
+            if ($rootJson !== $headJson) {
+                $report->addError(
+                    ErrorCode::E064,
+                    'root inventory does not match head version inventory byte-for-byte',
+                    $inventory->head,
+                );
+            }
+        }
+    }
+
+    private function checkLogicalPathFormat(Inventory $inventory, ValidationReport $report): void
+    {
+        foreach ($inventory->versions as $versionName => $version) {
+            foreach ($version->state as $paths) {
+                foreach ($paths as $path) {
+                    if (str_starts_with($path, '/')) {
+                        $report->addError(
+                            ErrorCode::E053,
+                            "logical path has leading slash: '{$path}'",
+                            $versionName,
+                        );
+
+                        continue;
+                    }
+
+                    foreach (explode('/', $path) as $segment) {
+                        if ($segment === '' || $segment === '.' || $segment === '..') {
+                            $report->addError(
+                                ErrorCode::E052,
+                                "logical path has invalid segment: '{$path}'",
+                                $versionName,
+                            );
+
+                            continue 2;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private function checkManifestCoverage(Inventory $inventory, ValidationReport $report): void
+    {
+        $referenced = [];
+        foreach ($inventory->versions as $version) {
+            foreach (array_keys($version->state) as $digest) {
+                $referenced[$digest] = true;
+            }
+        }
+
+        foreach (array_keys($inventory->manifest) as $digest) {
+            if (! isset($referenced[$digest])) {
+                $report->addError(
+                    ErrorCode::E107,
+                    "manifest digest {$digest} is not referenced by any version state",
+                );
             }
         }
     }

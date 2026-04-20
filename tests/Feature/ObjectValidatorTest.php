@@ -64,6 +64,13 @@ it('rejects bad-object fixtures with the expected error codes', function (string
     ['E092_content_file_digest_mismatch', ErrorCode::E092],
     ['E050_state_digest_not_in_manifest', ErrorCode::E050],
     ['E095_non_unique_logical_paths', ErrorCode::E095],
+    ['E037_inconsistent_id', ErrorCode::E037],
+    ['E049_created_no_timezone', ErrorCode::E049],
+    ['E049_created_not_to_seconds', ErrorCode::E049],
+    ['E053_E052_invalid_logical_paths', ErrorCode::E053],
+    ['E103_older_spec_v2', ErrorCode::E103],
+    ['E107_file_in_manifest_not_used', ErrorCode::E107],
+    ['E064_different_root_and_latest_inventories', ErrorCode::E064],
 ]);
 
 function warnFixturePath(string $name): string
