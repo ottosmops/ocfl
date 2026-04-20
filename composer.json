@@ -18,9 +18,14 @@
     },
     "require-dev": {
         "laravel/pint": "^1.18",
+        "league/flysystem": "^3.0",
+        "league/flysystem-memory": "^3.31",
         "pestphp/pest": "^3.5",
         "phpstan/phpstan": "^2.0",
         "rector/rector": "^2.0"
+    },
+    "suggest": {
+        "league/flysystem": "^3.0 — enables FlysystemFilesystem for S3/Azure/etc. backends"
     },
     "autoload": {
         "psr-4": {
