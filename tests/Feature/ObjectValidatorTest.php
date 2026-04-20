@@ -97,6 +97,13 @@ it('rejects bad-object fixtures with the expected error codes', function (string
     ['E095_conflicting_logical_paths', ErrorCode::E095],
     ['E097_fixity_duplicate_digests', ErrorCode::E097],
     ['E100_E099_fixity_invalid_content_paths', ErrorCode::E100],
+    ['E008_E036_no_versions_no_head', ErrorCode::E036],
+    ['E010_skipped_versions', ErrorCode::E010],
+    ['E040_wrong_version_in_version_dir', ErrorCode::E040],
+    ['E066_algorithm_change_state_mismatch', ErrorCode::E066],
+    ['E066_inconsistent_version_state', ErrorCode::E066],
+    ['E066_E092_old_manifest_digest_incorrect', ErrorCode::E092],
+    ['E092_algorithm_change_incorrect_digest', ErrorCode::E066],
 ]);
 
 function warnFixturePath(string $name): string
@@ -121,4 +128,8 @@ it('emits the expected warnings on warn-object fixtures', function (string $fixt
     ['W010_no_version_inventory', ErrorCode::W010],
     ['W002_extra_dir_in_version_dir', ErrorCode::W002],
     ['W013_unregistered_extension', ErrorCode::W013],
+    ['W001_W004_W005_zero_padded_versions', ErrorCode::W001],
+    ['W004_versions_diff_digests', ErrorCode::W004],
+    ['W007_spec-ex-diff-paths', ErrorCode::W007],
+    ['W011_version_inv_diff_metadata', ErrorCode::W011],
 ]);

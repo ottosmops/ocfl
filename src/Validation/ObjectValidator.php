@@ -315,6 +315,81 @@ final class ObjectValidator
                 );
             }
 
+            // E040: a version directory's own inventory must have head = the
+            // version directory's name. Otherwise the version is a lie about
+            // what it captures.
+            if ($versionInventory->head !== (string) $versionName) {
+                $report->addError(
+                    ErrorCode::E040,
+                    "version inventory head '{$versionInventory->head}' does not match its directory name '{$versionName}'",
+                    (string) $versionName,
+                );
+            }
+
+            // E066: digest algorithm changes across versions are permitted
+            // only through a specific rehashing process. If a version's
+            // inventory uses a different algorithm than the root, flag it.
+            if ($versionInventory->digestAlgorithm !== $inventory->digestAlgorithm) {
+                $report->addError(
+                    ErrorCode::E066,
+                    "version inventory digestAlgorithm '{$versionInventory->digestAlgorithm->value}' differs from root '{$inventory->digestAlgorithm->value}'",
+                    (string) $versionName,
+                );
+            }
+
+            // E092: verify this version inventory's own manifest against
+            // files on disk, under its own declared algorithm.
+            foreach ($versionInventory->manifest as $digest => $paths) {
+                foreach ($paths as $p) {
+                    $absolute = $objectRoot . '/' . $p;
+                    if (! $fs->fileExists($absolute)) {
+                        continue;
+                    }
+                    if (! in_array($versionInventory->digestAlgorithm->hashAlgorithm(), hash_algos(), true)) {
+                        continue;
+                    }
+                    $actual = $fs->digestFile($absolute, $versionInventory->digestAlgorithm);
+                    if (! Digest::equals($actual, $digest)) {
+                        $report->addError(
+                            ErrorCode::E092,
+                            "version {$versionName} inventory manifest digest does not match file at '{$p}'",
+                            (string) $versionName,
+                        );
+                    }
+                }
+            }
+
+            // E066: the state for a given version must be identical whether
+            // read from the root inventory or from that version's own
+            // inventory. State is canonical; diverging states after an
+            // algorithm change imply a broken rehashing process.
+            $rootBlock = $inventory->versions[$versionName] ?? null;
+            $verBlock = $versionInventory->versions[$versionName] ?? null;
+            if ($rootBlock !== null && $verBlock !== null) {
+                if (self::normalisedPaths($rootBlock->state) !== self::normalisedPaths($verBlock->state)) {
+                    $report->addError(
+                        ErrorCode::E066,
+                        "state of version {$versionName} differs between root and version inventory",
+                        (string) $versionName,
+                    );
+                }
+
+                // W011: same idea for metadata (message / user). Metadata
+                // mismatches are warnings rather than errors because the
+                // state-canonical invariant above doesn't apply.
+                $rootMsg = $rootBlock->message ?? '';
+                $verMsg = $verBlock->message ?? '';
+                $rootUserName = $rootBlock->user?->name;
+                $verUserName = $verBlock->user?->name;
+                if ($rootMsg !== $verMsg || $rootUserName !== $verUserName) {
+                    $report->addWarning(
+                        ErrorCode::W011,
+                        "version {$versionName} inventory metadata differs from root inventory's record",
+                        (string) $versionName,
+                    );
+                }
+            }
+
             // E023: any content path that ever appeared in a historical
             // manifest MUST still be present in the current root manifest
             // (OCFL manifests are append-only for preservation).
@@ -717,6 +792,26 @@ final class ObjectValidator
     }
 
     /**
+     * Project a state map down to a sorted flat set of logical paths, so
+     * states can be compared independently of their digest algorithm.
+     *
+     * @param  array<string, list<string>>  $state
+     * @return list<string>
+     */
+    private static function normalisedPaths(array $state): array
+    {
+        $paths = [];
+        foreach ($state as $list) {
+            foreach ($list as $p) {
+                $paths[] = $p;
+            }
+        }
+        sort($paths);
+
+        return $paths;
+    }
+
+    /**
      * @param  array<string, list<string>>  $manifest
      */
     private static function manifestHasPath(array $manifest, string $path): bool
@@ -812,6 +907,28 @@ final class ObjectValidator
             $report->addWarning(ErrorCode::W004, 'object uses sha256; sha512 is recommended');
         }
 
+        // Also check version inventories — if any version uses sha256
+        // (e.g., after an algorithm change), surface W004 for that too.
+        foreach (array_keys($inventory->versions) as $versionName) {
+            $viPath = $objectRoot . '/' . (string) $versionName . '/' . Inventory::FILENAME;
+            if (! $fs->fileExists($viPath)) {
+                continue;
+            }
+            try {
+                $vi = InventoryReader::fromFilesystem($fs, $viPath);
+            } catch (OcflException) {
+                continue;
+            }
+            if ($vi->digestAlgorithm === DigestAlgorithm::Sha256
+                && $inventory->digestAlgorithm !== DigestAlgorithm::Sha256) {
+                $report->addWarning(
+                    ErrorCode::W004,
+                    "version {$versionName} uses sha256; sha512 is recommended",
+                    (string) $versionName,
+                );
+            }
+        }
+
         // W002: extra directory (not "contentDirectory") inside a version dir.
         foreach (array_keys($inventory->versions) as $versionName) {
             $versionPath = $objectRoot . '/' . $versionName;
@@ -857,7 +974,8 @@ final class ObjectValidator
         }
 
         foreach ($inventory->versions as $versionName => $version) {
-            if ($version->message === null || $version->user === null) {
+            $versionName = (string) $versionName;
+            if ($version->message === null || $version->message === '' || $version->user === null) {
                 $report->addWarning(
                     ErrorCode::W007,
                     'version missing message and/or user block',

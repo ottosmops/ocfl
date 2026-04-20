@@ -37,6 +37,7 @@ enum ErrorCode: string
     case E099 = 'E099'; // Manifest content path malformed (empty segment or dot)
     case E100 = 'E100'; // Manifest content path absolute or contains parent refs
     case E101 = 'E101'; // Manifest content path list has duplicate entries
+    case E066 = 'E066'; // Inconsistent digest algorithm usage across versions
     case E103 = 'E103'; // Version inventory declares an older spec version
     case E107 = 'E107'; // Manifest entry not referenced by any version state
 
@@ -74,6 +75,7 @@ enum ErrorCode: string
     case W008 = 'W008'; // user.address missing
     case W009 = 'W009'; // user.address not a URI
     case W010 = 'W010'; // Version directory missing inventory.json
+    case W011 = 'W011'; // Version inventory differs from root's record of that version
     case W013 = 'W013'; // Unregistered extension in extensions/
 
     // Version block
