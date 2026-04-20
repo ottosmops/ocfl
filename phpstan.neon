@@ -1,0 +1,9 @@
+parameters:
+    level: max
+    paths:
+        - src
+        - tests
+    tmpDir: .phpstan.cache
+    parallel:
+        processTimeout: 300.0
+    treatPhpDocTypesAsCertain: false

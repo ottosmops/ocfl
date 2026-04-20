@@ -1,0 +1,3 @@
+[submodule "tests/fixtures/ocfl"]
+	path = tests/fixtures/ocfl
+	url = https://github.com/OCFL/fixtures.git

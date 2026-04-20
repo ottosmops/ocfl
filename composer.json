@@ -1,0 +1,55 @@
+{
+    "name": "ottosmops/ocfl",
+    "description": "PHP implementation of the Oxford Common File Layout (OCFL) v1.1 storage specification.",
+    "keywords": ["ocfl", "digital-preservation", "archiving", "repository", "fixity"],
+    "homepage": "https://github.com/ottosmops/ocfl",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Andreas Kränzle",
+            "email": "kraenzle@k-r.ch"
+        }
+    ],
+    "require": {
+        "php": "^8.3",
+        "ext-hash": "*",
+        "ext-json": "*",
+        "ext-mbstring": "*"
+    },
+    "require-dev": {
+        "laravel/pint": "^1.18",
+        "pestphp/pest": "^3.5",
+        "phpstan/phpstan": "^2.0",
+        "rector/rector": "^2.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Ottosmops\\Ocfl\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "pest",
+        "test:coverage": "pest --coverage",
+        "analyse": "phpstan analyse",
+        "format": "pint",
+        "refactor": "rector process",
+        "check": [
+            "@format",
+            "@analyse",
+            "@test"
+        ]
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
