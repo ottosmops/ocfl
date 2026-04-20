@@ -23,7 +23,7 @@ use OutOfBoundsException;
  */
 final readonly class OcflObject
 {
-    private function __construct(
+    public function __construct(
         public string $path,
         public Inventory $inventory,
     ) {
@@ -55,6 +55,54 @@ final readonly class OcflObject
         }
 
         return new self($path, $inventory);
+    }
+
+    /**
+     * Initialise a new, empty OCFL object at $path.
+     *
+     * The NAMASTE declaration is written immediately; no inventory is
+     * persisted until the first commit. The returned instance holds an
+     * in-memory, uninitialised Inventory (empty head, no versions) used
+     * by VersionBuilder as the base for the first commit.
+     */
+    public static function create(
+        string $path,
+        string $id,
+        DigestAlgorithm $digestAlgorithm = DigestAlgorithm::Sha512,
+    ): self {
+        if (! is_dir($path) && ! mkdir($path, 0o755, true) && ! is_dir($path)) {
+            throw new OcflException(ErrorCode::E001, "failed to create object root {$path}");
+        }
+
+        // An object root MUST be empty before initialisation (§3.3).
+        $existing = scandir($path) ?: [];
+        foreach ($existing as $entry) {
+            if ($entry !== '.' && $entry !== '..') {
+                throw new OcflException(
+                    ErrorCode::E001,
+                    "object root {$path} is not empty",
+                );
+            }
+        }
+
+        Namaste::write($path, NamasteType::ObjectRoot);
+
+        $emptyInventory = new Inventory(
+            id: $id,
+            type: Inventory::TYPE,
+            digestAlgorithm: $digestAlgorithm,
+            head: '',
+            contentDirectory: Inventory::DEFAULT_CONTENT_DIRECTORY,
+            manifest: [],
+            versions: [],
+        );
+
+        return new self($path, $emptyInventory);
+    }
+
+    public function newVersion(): VersionBuilder
+    {
+        return new VersionBuilder($this);
     }
 
     public function id(): string
