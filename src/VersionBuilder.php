@@ -160,6 +160,14 @@ final class VersionBuilder
             algorithm: $algorithm,
         );
 
+        // Remove the pre-commit pending-metadata file written by
+        // OcflObject::create(), if present; it is no longer needed once a
+        // real inventory exists.
+        $pendingPath = $this->base->path . '/' . OcflObject::PENDING_META;
+        if ($fs->fileExists($pendingPath)) {
+            $fs->delete($pendingPath);
+        }
+
         return OcflObject::open($this->base->path, $fs);
     }
 

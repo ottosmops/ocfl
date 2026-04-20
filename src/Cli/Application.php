@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace Ottosmops\Ocfl\Cli;
 
+use Ottosmops\Ocfl\Cli\Command\CheckoutCommand;
 use Ottosmops\Ocfl\Cli\Command\Command;
+use Ottosmops\Ocfl\Cli\Command\CommitCommand;
+use Ottosmops\Ocfl\Cli\Command\CreateCommand;
 use Ottosmops\Ocfl\Cli\Command\InfoCommand;
 use Ottosmops\Ocfl\Cli\Command\ListCommand;
 use Ottosmops\Ocfl\Cli\Command\ValidateCommand;
@@ -27,6 +30,9 @@ final class Application
         'validate' => ValidateCommand::class,
         'info' => InfoCommand::class,
         'list' => ListCommand::class,
+        'create' => CreateCommand::class,
+        'commit' => CommitCommand::class,
+        'checkout' => CheckoutCommand::class,
     ];
 
     /**
@@ -75,9 +81,15 @@ final class Application
           ocfl <command> [options] <path>
 
         Commands:
-          validate <path>        Validate an OCFL object at <path>.
-          info <path>            Print metadata about an OCFL object.
-          list <storage-root>    List every object id under a storage root.
+          validate <path>                 Validate an OCFL object at <path>.
+          info <path>                     Print metadata about an OCFL object.
+          list <storage-root>             List every object id under a storage root.
+          create <path> <id>              Initialise an empty OCFL object.
+                                          Options: --digest=sha512|sha256 (default sha512)
+          commit <path> --from=<dir>      Commit the contents of <dir> as the next version.
+                                          Options: --message=, --user=, --user-address=
+          checkout <path> <target>        Materialise a version into <target>.
+                                          Options: --version=v1 (defaults to head)
 
         Global options:
           --json                 Emit machine-readable JSON on stdout.

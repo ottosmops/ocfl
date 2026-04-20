@@ -191,3 +191,131 @@ test('info errors gracefully on a non-object path', function (): void {
     expect($result['exit'])->toBeGreaterThan(0)
         ->and($result['stderr'])->not->toBe('');
 });
+
+test('create initialises an empty object root', function (): void {
+    $dir = cliWorkDir();
+
+    try {
+        $path = $dir . '/my-object';
+        $result = runCli(['ocfl', 'create', $path, 'urn:test:created']);
+
+        expect($result['exit'])->toBe(0)
+            ->and($result['stdout'])->toContain('urn:test:created')
+            ->and(is_file($path . '/0=ocfl_object_1.1'))->toBeTrue();
+    } finally {
+        cliCleanup($dir);
+    }
+});
+
+test('create accepts a custom digest algorithm', function (): void {
+    $dir = cliWorkDir();
+
+    try {
+        $path = $dir . '/obj';
+        $result = runCli(['ocfl', 'create', $path, 'urn:test:sha256', '--digest=sha256']);
+
+        expect($result['exit'])->toBe(0);
+        // Commit something so the inventory exists and the algo persists.
+        $result = runCli(['ocfl', 'commit', $path, '--from=' . $dir, '--message=init']);
+        expect($result['exit'])->toBe(0)
+            ->and(is_file($path . '/inventory.json.sha256'))->toBeTrue();
+    } finally {
+        cliCleanup($dir);
+    }
+});
+
+test('commit builds a version from a source directory', function (): void {
+    $dir = cliWorkDir();
+
+    try {
+        $source = $dir . '/source';
+        mkdir($source . '/docs', 0o755, true);
+        file_put_contents($source . '/readme.txt', 'hello');
+        file_put_contents($source . '/docs/a.md', '# a');
+
+        $objectPath = $dir . '/obj';
+        runCli(['ocfl', 'create', $objectPath, 'urn:test:commit']);
+
+        $result = runCli([
+            'ocfl', 'commit', $objectPath,
+            '--from=' . $source,
+            '--message=Initial import',
+            '--user=Alice',
+            '--user-address=mailto:alice@example.com',
+        ]);
+
+        expect($result['exit'])->toBe(0)
+            ->and($result['stdout'])->toContain('v1')
+            ->and(is_file($objectPath . '/v1/content/readme.txt'))->toBeTrue()
+            ->and(is_file($objectPath . '/v1/content/docs/a.md'))->toBeTrue();
+
+        // Second commit with modified + new file; expect v2.
+        file_put_contents($source . '/readme.txt', 'hello, world');
+        file_put_contents($source . '/docs/b.md', '# b');
+        $result = runCli([
+            'ocfl', 'commit', $objectPath,
+            '--from=' . $source,
+            '--message=Add b, edit readme',
+            '--user=Alice',
+        ]);
+        expect($result['exit'])->toBe(0)
+            ->and($result['stdout'])->toContain('v2');
+    } finally {
+        cliCleanup($dir);
+    }
+});
+
+test('commit without --from fails with a clear message', function (): void {
+    $result = runCli(['ocfl', 'commit', '/nonexistent']);
+
+    expect($result['exit'])->toBeGreaterThan(0)
+        ->and($result['stderr'])->toContain('--from');
+});
+
+test('checkout materialises a version into a target directory', function (): void {
+    $dir = cliWorkDir();
+
+    try {
+        $source = $dir . '/source';
+        mkdir($source, 0o755, true);
+        file_put_contents($source . '/file.txt', 'payload');
+
+        $objectPath = $dir . '/obj';
+        runCli(['ocfl', 'create', $objectPath, 'urn:test:checkout']);
+        runCli(['ocfl', 'commit', $objectPath, '--from=' . $source, '--message=v1']);
+
+        $target = $dir . '/out';
+        $result = runCli(['ocfl', 'checkout', $objectPath, $target]);
+
+        expect($result['exit'])->toBe(0)
+            ->and(is_file($target . '/file.txt'))->toBeTrue()
+            ->and((string) file_get_contents($target . '/file.txt'))->toBe('payload');
+    } finally {
+        cliCleanup($dir);
+    }
+});
+
+test('checkout honours --version', function (): void {
+    $dir = cliWorkDir();
+
+    try {
+        $source = $dir . '/source';
+        mkdir($source, 0o755, true);
+        file_put_contents($source . '/file.txt', 'v1 content');
+
+        $objectPath = $dir . '/obj';
+        runCli(['ocfl', 'create', $objectPath, 'urn:test:checkout-ver']);
+        runCli(['ocfl', 'commit', $objectPath, '--from=' . $source, '--message=v1']);
+
+        file_put_contents($source . '/file.txt', 'v2 content');
+        runCli(['ocfl', 'commit', $objectPath, '--from=' . $source, '--message=v2']);
+
+        $target = $dir . '/out-v1';
+        $result = runCli(['ocfl', 'checkout', $objectPath, $target, '--version=v1']);
+
+        expect($result['exit'])->toBe(0)
+            ->and((string) file_get_contents($target . '/file.txt'))->toBe('v1 content');
+    } finally {
+        cliCleanup($dir);
+    }
+});

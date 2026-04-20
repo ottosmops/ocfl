@@ -187,9 +187,23 @@ vendor/bin/ocfl info /path/to/object
 # List all object ids below a storage root
 vendor/bin/ocfl list /path/to/storage-root
 
+# Create, commit, checkout
+vendor/bin/ocfl create /path/to/object urn:example:foo --digest=sha512
+vendor/bin/ocfl commit /path/to/object \
+    --from=/path/to/staging-dir \
+    --message='Initial import' \
+    --user=Alice \
+    --user-address=mailto:alice@example.com
+vendor/bin/ocfl checkout /path/to/object /path/to/snapshot --version=v1
+
 # Machine-readable output for any subcommand
 vendor/bin/ocfl validate --json /path/to/object
 ```
+
+`ocfl commit --from=<dir>` treats the source directory as the canonical
+logical state of the next version: every file below `<dir>` becomes a
+logical path, and any file in the previous version that no longer exists
+in `<dir>` is removed. Content dedup is automatic.
 
 Exit codes: `0` success · `1` object invalid · `2` usage error · `3` runtime
 error. Colours are emitted by default; pipe through `| cat` to strip them.
