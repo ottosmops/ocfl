@@ -51,14 +51,18 @@ final class ObjectValidator
             return $report;
         }
 
+        $this->checkInventoryRawJson($fs, $objectRoot, $report);
+        $this->checkContentDirectoryName($inventory, $report);
+        $this->checkHeadPresence($inventory, $report);
         $this->checkRootLayout($fs, $objectRoot, $inventory, $report);
         $this->checkVersionDirectories($fs, $objectRoot, $inventory, $report);
         $this->checkVersionInventories($fs, $objectRoot, $inventory, $report);
+        $this->checkManifestContentPaths($inventory, $report);
         $this->checkContentFilesAgainstManifest($fs, $objectRoot, $inventory, $report);
         $this->checkLogicalPathFormat($inventory, $report);
         $this->checkLogicalPathUniqueness($inventory, $report);
         $this->checkManifestCoverage($inventory, $report);
-        $this->emitWarnings($inventory, $report);
+        $this->emitWarnings($fs, $objectRoot, $inventory, $report);
 
         return $report;
     }
@@ -166,9 +170,27 @@ final class ObjectValidator
     {
         $versionNames = array_keys($inventory->versions);
 
+        // E046: every vN directory on disk must be in the versions map.
+        foreach ($fs->listDirectory($objectRoot) as $name) {
+            if (preg_match('/^v\d+$/', $name) !== 1) {
+                continue;
+            }
+            if (! $fs->directoryExists($objectRoot . '/' . $name)) {
+                continue;
+            }
+            if (! isset($inventory->versions[$name])) {
+                $report->addError(
+                    ErrorCode::E046,
+                    "version directory {$name} exists on disk but is not in the inventory's versions map",
+                    $name,
+                );
+            }
+        }
+
         foreach ($versionNames as $versionName) {
-            if (preg_match('/^v\d+$/', $versionName) !== 1) {
-                $report->addError(ErrorCode::E011, "malformed version name '{$versionName}'");
+            $nameStr = (string) $versionName;
+            if (preg_match('/^v\d+$/', $nameStr) !== 1) {
+                $report->addError(ErrorCode::E011, "malformed version name '{$nameStr}'");
             }
         }
 
@@ -182,21 +204,22 @@ final class ObjectValidator
 
         $expected = 1;
         foreach ($versionNames as $name) {
-            if (preg_match('/^v0*(\d+)$/', $name, $matches) !== 1) {
+            $nameStr = (string) $name;
+            if (preg_match('/^v0*(\d+)$/', $nameStr, $matches) !== 1) {
                 continue;
             }
             $number = (int) $matches[1];
             if ($number !== $expected) {
                 $report->addError(
                     ErrorCode::E010,
-                    "version sequence broken; expected v{$expected} but got {$name}",
+                    "version sequence broken; expected v{$expected} but got {$nameStr}",
                 );
                 break;
             }
             $expected++;
         }
 
-        $last = $versionNames === [] ? null : $versionNames[array_key_last($versionNames)];
+        $last = $versionNames === [] ? null : (string) $versionNames[array_key_last($versionNames)];
         if ($last !== null && $inventory->head !== $last) {
             $report->addError(
                 ErrorCode::E040,
@@ -222,7 +245,8 @@ final class ObjectValidator
     private function checkVersionInventories(Filesystem $fs, string $objectRoot, Inventory $inventory, ValidationReport $report): void
     {
         foreach (array_keys($inventory->versions) as $versionName) {
-            $versionInventoryPath = $objectRoot . '/' . $versionName . '/' . Inventory::FILENAME;
+            $versionDir = $objectRoot . '/' . $versionName;
+            $versionInventoryPath = $versionDir . '/' . Inventory::FILENAME;
             if (! $fs->fileExists($versionInventoryPath)) {
                 continue;
             }
@@ -249,6 +273,31 @@ final class ObjectValidator
                     "version inventory type '{$versionInventory->type}' differs from root type '{$inventory->type}'",
                     $versionName,
                 );
+            }
+
+            if ($versionInventory->contentDirectory !== $inventory->contentDirectory) {
+                $report->addError(
+                    ErrorCode::E019,
+                    "version inventory contentDirectory '{$versionInventory->contentDirectory}' differs from root '{$inventory->contentDirectory}'",
+                    $versionName,
+                );
+            }
+
+            // E060 within each version directory: its own sidecar must match
+            // its own inventory.json.
+            $sidecarPath = $versionDir . '/' . InventorySidecar::filename($versionInventory->digestAlgorithm);
+            if ($fs->fileExists($sidecarPath)) {
+                try {
+                    if (! InventorySidecar::verify($fs, $versionDir, $versionInventory->digestAlgorithm)) {
+                        $report->addError(
+                            ErrorCode::E060,
+                            'version inventory sidecar digest does not match inventory.json',
+                            $versionName,
+                        );
+                    }
+                } catch (OcflException $e) {
+                    $report->addError($e->errorCode, $e->getMessage(), $versionName);
+                }
             }
         }
 
@@ -281,26 +330,6 @@ final class ObjectValidator
                     $versionContent . '/' . $relative;
             }
 
-            // Flag files under the version directory but outside contentDirectory.
-            $versionPath = $objectRoot . '/' . $versionName;
-            if (! $fs->directoryExists($versionPath)) {
-                continue;
-            }
-            foreach ($fs->listDirectory($versionPath) as $name) {
-                if ($name === $contentDir) {
-                    continue;
-                }
-                if ($name === Inventory::FILENAME || $name === InventorySidecar::filename($inventory->digestAlgorithm)) {
-                    continue;
-                }
-                if ($fs->directoryExists($versionPath . '/' . $name)) {
-                    $report->addError(
-                        ErrorCode::E015,
-                        "file or directory outside contentDirectory: {$versionName}/{$name}",
-                        "{$versionName}/{$name}",
-                    );
-                }
-            }
         }
 
         $manifestPaths = [];
@@ -379,6 +408,176 @@ final class ObjectValidator
         }
     }
 
+    private function checkInventoryRawJson(Filesystem $fs, string $objectRoot, ValidationReport $report): void
+    {
+        $path = $objectRoot . '/' . Inventory::FILENAME;
+        if (! $fs->fileExists($path)) {
+            return;
+        }
+
+        try {
+            /** @var mixed $raw */
+            $raw = json_decode($fs->read($path), true, flags: JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return;
+        }
+
+        if (! is_array($raw)) {
+            return;
+        }
+
+        $manifestRaw = is_array($raw['manifest'] ?? null) ? $raw['manifest'] : [];
+
+        $this->checkDuplicateDigestCase($manifestRaw, 'manifest', ErrorCode::E096, $report);
+
+        if (isset($raw['versions']) && is_array($raw['versions'])) {
+            foreach ($raw['versions'] as $versionName => $block) {
+                if (! is_array($block) || ! isset($block['state']) || ! is_array($block['state'])) {
+                    continue;
+                }
+                $context = is_string($versionName) ? "versions.{$versionName}.state" : 'state';
+                $this->checkDuplicateDigestCase($block['state'], $context, ErrorCode::E095, $report);
+
+                // E050: a state digest must match a manifest digest verbatim
+                // (same case), not just case-insensitively.
+                foreach (array_keys($block['state']) as $stateDigest) {
+                    if (! is_string($stateDigest)) {
+                        continue;
+                    }
+                    if (isset($manifestRaw[$stateDigest])) {
+                        continue;
+                    }
+                    // Exists case-insensitively but not verbatim?
+                    foreach (array_keys($manifestRaw) as $manifestDigest) {
+                        if (is_string($manifestDigest)
+                            && strcasecmp($manifestDigest, $stateDigest) === 0) {
+                            $report->addError(
+                                ErrorCode::E050,
+                                "state digest case differs from manifest entry: '{$stateDigest}'",
+                                is_string($versionName) ? $versionName : '',
+                            );
+                            continue 2;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $map
+     */
+    private function checkDuplicateDigestCase(array $map, string $context, ErrorCode $dupCode, ValidationReport $report): void
+    {
+        $seen = [];
+        foreach (array_keys($map) as $digest) {
+            if (! is_string($digest)) {
+                continue;
+            }
+            $normalised = strtolower($digest);
+            if (isset($seen[$normalised])) {
+                $report->addError($dupCode, "{$context} has duplicate digests differing only by case: '{$digest}'");
+            }
+            $seen[$normalised] = true;
+        }
+    }
+
+    private function checkContentDirectoryName(Inventory $inventory, ValidationReport $report): void
+    {
+        $dir = $inventory->contentDirectory;
+
+        if ($dir === '' || str_contains($dir, '/') || $dir === '.' || $dir === '..') {
+            $report->addError(ErrorCode::E017, "invalid contentDirectory: '{$dir}'");
+        }
+    }
+
+    private function checkHeadPresence(Inventory $inventory, ValidationReport $report): void
+    {
+        if (! isset($inventory->versions[$inventory->head])) {
+            $report->addError(
+                ErrorCode::E040,
+                "head '{$inventory->head}' does not name a version in the inventory",
+            );
+        }
+    }
+
+    private function checkManifestContentPaths(Inventory $inventory, ValidationReport $report): void
+    {
+        $seenPaths = [];
+
+        foreach ($inventory->manifest as $digest => $paths) {
+            $localSeen = [];
+            foreach ($paths as $path) {
+                if ($path === '' || str_starts_with($path, '/')) {
+                    $report->addError(ErrorCode::E100, "manifest content path is absolute: '{$path}'");
+
+                    continue;
+                }
+
+                $segments = explode('/', $path);
+                $hasBadSegment = false;
+                foreach ($segments as $segment) {
+                    if ($segment === '') {
+                        $report->addError(ErrorCode::E099, "manifest content path has empty segment: '{$path}'");
+                        $hasBadSegment = true;
+                        break;
+                    }
+                    if ($segment === '..') {
+                        $report->addError(ErrorCode::E100, "manifest content path has '..' segment: '{$path}'");
+                        $hasBadSegment = true;
+                        break;
+                    }
+                    if ($segment === '.') {
+                        $report->addError(ErrorCode::E099, "manifest content path has '.' segment: '{$path}'");
+                        $hasBadSegment = true;
+                        break;
+                    }
+                }
+
+                if ($hasBadSegment) {
+                    continue;
+                }
+
+                if (isset($localSeen[$path])) {
+                    $report->addError(ErrorCode::E101, "manifest content path appears twice under same digest: '{$path}'");
+                } else {
+                    $localSeen[$path] = true;
+                }
+
+                if (isset($seenPaths[$path])) {
+                    $report->addError(ErrorCode::E101, "manifest content path appears under multiple digests: '{$path}'");
+                } else {
+                    $seenPaths[$path] = $digest;
+                }
+
+                // E015: must sit under "<versionName>/<contentDirectory>/".
+                $expectedPrefix = self::versionPrefix($path, $inventory->contentDirectory);
+                if ($expectedPrefix === null) {
+                    $report->addError(
+                        ErrorCode::E015,
+                        "manifest content path not under a version's contentDirectory: '{$path}'",
+                    );
+                }
+            }
+        }
+    }
+
+    private static function versionPrefix(string $path, string $contentDirectory): ?string
+    {
+        $segments = explode('/', $path);
+        if (count($segments) < 3) {
+            return null;
+        }
+        if (preg_match('/^v\d+$/', $segments[0]) !== 1) {
+            return null;
+        }
+        if ($segments[1] !== $contentDirectory) {
+            return null;
+        }
+
+        return $segments[0] . '/' . $contentDirectory;
+    }
+
     private function checkManifestCoverage(Inventory $inventory, ValidationReport $report): void
     {
         $referenced = [];
@@ -419,10 +618,50 @@ final class ObjectValidator
         }
     }
 
-    private function emitWarnings(Inventory $inventory, ValidationReport $report): void
+    private function emitWarnings(Filesystem $fs, string $objectRoot, Inventory $inventory, ValidationReport $report): void
     {
         if ($inventory->digestAlgorithm === DigestAlgorithm::Sha256) {
             $report->addWarning(ErrorCode::W004, 'object uses sha256; sha512 is recommended');
+        }
+
+        // W002: extra directory (not "contentDirectory") inside a version dir.
+        foreach (array_keys($inventory->versions) as $versionName) {
+            $versionPath = $objectRoot . '/' . $versionName;
+            if (! $fs->directoryExists($versionPath)) {
+                continue;
+            }
+            foreach ($fs->listDirectory($versionPath) as $entry) {
+                if ($entry === $inventory->contentDirectory) {
+                    continue;
+                }
+                if ($entry === Inventory::FILENAME) {
+                    continue;
+                }
+                if ($entry === InventorySidecar::filename($inventory->digestAlgorithm)) {
+                    continue;
+                }
+                if ($fs->directoryExists($versionPath . '/' . $entry)) {
+                    $report->addWarning(
+                        ErrorCode::W002,
+                        "extra directory in version {$versionName}: {$entry}",
+                        $versionName,
+                    );
+                }
+            }
+        }
+
+        // W013: extensions/ must contain only registered community extensions.
+        $extensionsPath = $objectRoot . '/extensions';
+        if ($fs->directoryExists($extensionsPath)) {
+            foreach ($fs->listDirectory($extensionsPath) as $ext) {
+                if ($fs->directoryExists($extensionsPath . '/' . $ext)
+                    && preg_match('/^\d{4}-/', $ext) !== 1) {
+                    $report->addWarning(
+                        ErrorCode::W013,
+                        "extension '{$ext}' is not a registered community extension (NNNN- prefix)",
+                    );
+                }
+            }
         }
 
         if (! self::looksLikeUri($inventory->id)) {
@@ -461,7 +700,7 @@ final class ObjectValidator
             return null;
         }
 
-        $first = $versionNames[0];
+        $first = (string) $versionNames[0];
         if (preg_match('/^v(0+)?\d+$/', $first, $matches) !== 1) {
             return null;
         }

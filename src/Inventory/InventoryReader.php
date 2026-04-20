@@ -168,11 +168,14 @@ final class InventoryReader
         $out = [];
 
         foreach ($raw as $name => $block) {
-            if (! is_string($name) || ! is_array($block)) {
+            if (! is_array($block)) {
                 throw new OcflException(ErrorCode::E048, 'version entry malformed');
             }
 
-            $out[$name] = self::readVersion($block);
+            // JSON string keys that look numeric are auto-coerced by PHP to
+            // int — preserve them as strings so the validator can flag
+            // malformed version names (E011) instead of erroring on parse.
+            $out[(string) $name] = self::readVersion($block);
         }
 
         return $out;

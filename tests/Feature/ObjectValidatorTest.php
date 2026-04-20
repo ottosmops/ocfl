@@ -71,6 +71,22 @@ it('rejects bad-object fixtures with the expected error codes', function (string
     ['E103_older_spec_v2', ErrorCode::E103],
     ['E107_file_in_manifest_not_used', ErrorCode::E107],
     ['E064_different_root_and_latest_inventories', ErrorCode::E064],
+    ['E001_invalid_version_format', ErrorCode::E001],
+    ['E001_v2_file_in_root', ErrorCode::E001],
+    ['E007_bad_declaration_contents', ErrorCode::E007],
+    ['E017_invalid_content_dir', ErrorCode::E017],
+    ['E019_inconsistent_content_dir', ErrorCode::E019],
+    ['E040_wrong_head_doesnt_exist', ErrorCode::E040],
+    ['E040_wrong_head_format', ErrorCode::E040],
+    ['E046_root_not_most_recent', ErrorCode::E046],
+    ['E050_manifest_digest_wrong_case', ErrorCode::E050],
+    ['E060_version_inventory_digest_mismatch', ErrorCode::E060],
+    ['E096_manifest_duplicate_digests', ErrorCode::E096],
+    ['E101_non_unique_content_paths', ErrorCode::E101],
+    ['E100_E099_manifest_invalid_content_paths', ErrorCode::E100],
+    ['E015_content_not_in_content_dir', ErrorCode::E015],
+    ['E003_E063_empty', ErrorCode::E003],
+    ['E010_skipped_versions', ErrorCode::E010],
 ]);
 
 function warnFixturePath(string $name): string
@@ -93,4 +109,6 @@ it('emits the expected warnings on warn-object fixtures', function (string $fixt
     ['W008_user_no_address', ErrorCode::W008],
     ['W009_user_address_not_uri', ErrorCode::W009],
     ['W010_no_version_inventory', ErrorCode::W010],
+    ['W002_extra_dir_in_version_dir', ErrorCode::W002],
+    ['W013_unregistered_extension', ErrorCode::W013],
 ]);
