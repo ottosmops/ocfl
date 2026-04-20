@@ -32,6 +32,7 @@
             "Ottosmops\\Ocfl\\": "src/"
         }
     },
+    "bin": ["bin/ocfl"],
     "autoload-dev": {
         "psr-4": {
             "Tests\\": "tests/"

@@ -1,0 +1,27 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+// Entry point for the `ocfl` CLI. Resolves the autoloader both when run
+// from a checkout (vendor/ is a sibling) and when installed via Composer
+// into a consuming project's vendor/bin/ (autoloader is 2 levels up).
+
+$autoloaders = [
+    __DIR__ . '/../vendor/autoload.php',
+    __DIR__ . '/../../../autoload.php',
+];
+
+foreach ($autoloaders as $path) {
+    if (is_file($path)) {
+        require $path;
+
+        break;
+    }
+}
+
+exit((new Ottosmops\Ocfl\Cli\Application())->run(
+    $argv,
+    STDOUT,
+    STDERR,
+));

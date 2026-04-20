@@ -29,6 +29,8 @@ GCS, in-memory, …).
   fixtures, and emits 13/13 warn-object advisories.
 - **Pluggable storage** — `LocalFilesystem` by default; `FlysystemFilesystem`
   adapter for any `league/flysystem` v3 backend (S3, Azure, GCS, …).
+- **CLI** — `ocfl validate|info|list` for quick inspection from the shell,
+  with optional `--json` output for scripting.
 - **Framework-agnostic** — zero required Composer runtime dependencies
   beyond the PHP standard library. Laravel / Symfony wrappers are easy to
   build on top.
@@ -170,6 +172,75 @@ $root->createObject('urn:example:foo')
 Content digests are streamed, not buffered — large files never need to be
 loaded into memory just to hash them.
 
+## Command-line usage
+
+A small `ocfl` binary is shipped in `bin/` (Composer installs it into
+`vendor/bin/ocfl`).
+
+```bash
+# Validate an object; exit 0 if valid, 1 if not
+vendor/bin/ocfl validate /path/to/object
+
+# Print metadata
+vendor/bin/ocfl info /path/to/object
+
+# List all object ids below a storage root
+vendor/bin/ocfl list /path/to/storage-root
+
+# Machine-readable output for any subcommand
+vendor/bin/ocfl validate --json /path/to/object
+```
+
+Exit codes: `0` success · `1` object invalid · `2` usage error · `3` runtime
+error. Colours are emitted by default; pipe through `| cat` to strip them.
+
+## Laravel integration
+
+The core package is framework-agnostic. For a Laravel app, wire it into
+the container yourself — no second package needed:
+
+```php
+// app/Providers/OcflServiceProvider.php
+use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Facades\Storage;
+use League\Flysystem\Filesystem as LeagueFilesystem;
+use Ottosmops\Ocfl\Filesystem\FlysystemFilesystem;
+use Ottosmops\Ocfl\Filesystem\LocalFilesystem;
+use Ottosmops\Ocfl\Storage\HashedNTupleStorageLayout;
+use Ottosmops\Ocfl\Storage\StorageRoot;
+
+final class OcflServiceProvider extends ServiceProvider
+{
+    public function register(): void
+    {
+        $this->app->singleton(StorageRoot::class, function () {
+            $disk = Storage::disk(config('ocfl.disk', 'local'));
+
+            // Laravel's Storage::disk() returns its own Filesystem wrapper;
+            // grab the underlying Flysystem operator and adapt it.
+            $fs = $disk->getDriver() instanceof LeagueFilesystem
+                ? new FlysystemFilesystem($disk->getDriver())
+                : new LocalFilesystem();
+
+            return StorageRoot::open(
+                path: config('ocfl.root', storage_path('ocfl')),
+                fs:   $fs,
+            );
+        });
+    }
+}
+```
+
+Then anywhere in the app:
+
+```php
+$root   = app(StorageRoot::class);
+$object = $root->getObject('urn:example:foo');
+```
+
+Artisan wrappers for `validate` / `list` can shell out to `vendor/bin/ocfl`
+or call `Application::run()` directly.
+
 ## Validation status
 
 The `ObjectValidator` emits OCFL-spec error and warning codes that link
@@ -178,7 +249,7 @@ directly to <https://ocfl.io/1.1/spec/validation-codes.html>.
 | Category | Coverage |
 |----------|----------|
 | Good-object fixtures | 12 / 12 validate with zero errors |
-| Bad-object fixtures | 55 / 55 rejected with the documented error code |
+| Bad-object fixtures | **55 / 55** rejected with the documented error code |
 | Warn-object fixtures | 13 / 13 emit the documented advisory |
 
 Implemented error codes: `E001 E003 E007 E008 E010 E011 E013 E015 E017
