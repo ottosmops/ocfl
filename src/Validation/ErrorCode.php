@@ -38,6 +38,9 @@ enum ErrorCode: string
     // Content / manifest integrity
     case E092 = 'E092'; // Content file digest does not match manifest
 
+    // Storage root
+    case E070 = 'E070'; // Missing or invalid ocfl_layout.json
+
     // Version block
     case E048 = 'E048'; // Version block missing required property
     case E049 = 'E049'; // created field malformed
