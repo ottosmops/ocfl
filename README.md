@@ -1,7 +1,10 @@
 # ottosmops/ocfl
 
+[![Latest Version on Packagist](https://img.shields.io/packagist/v/ottosmops/ocfl.svg?style=flat-square)](https://packagist.org/packages/ottosmops/ocfl)
+[![Total Downloads](https://img.shields.io/packagist/dt/ottosmops/ocfl.svg?style=flat-square)](https://packagist.org/packages/ottosmops/ocfl)
 [![Tests](https://github.com/ottosmops/ocfl/actions/workflows/tests.yml/badge.svg)](https://github.com/ottosmops/ocfl/actions/workflows/tests.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![PHP Version Require](https://img.shields.io/packagist/dependency-v/ottosmops/ocfl/php?style=flat-square)](https://packagist.org/packages/ottosmops/ocfl)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
 
 `ottosmops/ocfl` is a PHP library for working with the [Oxford Common File
 Layout (OCFL) v1.1](https://ocfl.io/1.1/spec/) — a storage specification for
