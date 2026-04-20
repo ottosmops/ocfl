@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ottosmops\Ocfl\Inventory;
 
 use DateTimeImmutable;
+use Exception;
 use JsonException;
 use Ottosmops\Ocfl\DigestAlgorithm;
 use Ottosmops\Ocfl\Validation\ErrorCode;
@@ -195,11 +196,19 @@ final class InventoryReader
             throw new OcflException(ErrorCode::E049, 'version created must be an RFC3339 string');
         }
 
-        $parsed = DateTimeImmutable::createFromFormat(DATE_RFC3339, $created)
-            ?: DateTimeImmutable::createFromFormat(DATE_RFC3339_EXTENDED, $created);
-
-        if ($parsed === false) {
+        // RFC3339 permits arbitrary-precision fractional seconds; PHP's
+        // DATE_RFC3339 / DATE_RFC3339_EXTENDED handle 0 / 3 digits only.
+        // Validate the shape first, then hand the parsing itself to
+        // DateTimeImmutable which accepts the full range.
+        $rfc3339 = '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/';
+        if (preg_match($rfc3339, $created) !== 1) {
             throw new OcflException(ErrorCode::E049, "version created not RFC3339: '{$created}'");
+        }
+
+        try {
+            $parsed = new DateTimeImmutable($created);
+        } catch (Exception $e) {
+            throw new OcflException(ErrorCode::E049, "version created not RFC3339: '{$created}'", $e);
         }
 
         $user = null;

@@ -17,6 +17,19 @@ enum ErrorCode: string
     case E001 = 'E001'; // Disallowed content in object root
     case E003 = 'E003'; // Missing NAMASTE declaration
     case E007 = 'E007'; // NAMASTE contents malformed
+    case E008 = 'E008'; // Missing versions
+    case E010 = 'E010'; // Gap in version sequence
+    case E011 = 'E011'; // Version directory name malformed
+    case E013 = 'E013'; // Inconsistent version padding
+    case E015 = 'E015'; // Content file outside contentDirectory
+    case E017 = 'E017'; // contentDirectory invalid
+    case E019 = 'E019'; // Inconsistent contentDirectory across versions
+    case E023 = 'E023'; // Content file missing from or extra vs. manifest
+    case E046 = 'E046'; // Root inventory not from the most recent version
+    case E063 = 'E063'; // Missing root inventory
+    case E064 = 'E064'; // Root inventory differs from head version inventory
+    case E067 = 'E067'; // extensions/ contains non-directory
+    case E095 = 'E095'; // Conflicting or non-unique logical paths
 
     // Inventory structure
     case E033 = 'E033'; // Inventory not valid JSON
@@ -40,6 +53,15 @@ enum ErrorCode: string
 
     // Storage root
     case E070 = 'E070'; // Missing or invalid ocfl_layout.json
+
+    // Warnings
+    case W001 = 'W001'; // Version directory names zero-padded
+    case W004 = 'W004'; // sha256 used instead of sha512
+    case W005 = 'W005'; // id is not a URI
+    case W007 = 'W007'; // Version block missing message or user
+    case W008 = 'W008'; // user.address missing
+    case W009 = 'W009'; // user.address not a URI
+    case W010 = 'W010'; // Version directory missing inventory.json
 
     // Version block
     case E048 = 'E048'; // Version block missing required property

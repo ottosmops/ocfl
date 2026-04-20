@@ -10,7 +10,9 @@ use Ottosmops\Ocfl\Inventory\InventoryReader;
 use Ottosmops\Ocfl\Inventory\InventorySidecar;
 use Ottosmops\Ocfl\Inventory\Version;
 use Ottosmops\Ocfl\Validation\ErrorCode;
+use Ottosmops\Ocfl\Validation\ObjectValidator;
 use Ottosmops\Ocfl\Validation\OcflException;
+use Ottosmops\Ocfl\Validation\ValidationReport;
 use OutOfBoundsException;
 
 /**
@@ -96,6 +98,11 @@ final readonly class OcflObject
     public function newVersion(): VersionBuilder
     {
         return new VersionBuilder($this);
+    }
+
+    public function validate(): ValidationReport
+    {
+        return (new ObjectValidator())->validate($this->path);
     }
 
     public function id(): string
