@@ -5,14 +5,11 @@ declare(strict_types=1);
 namespace Ottosmops\Ocfl\Validation;
 
 /**
- * OCFL 1.1 validation error/warning codes.
+ * OCFL 1.1 validation error/warning codes
+ * (https://ocfl.io/1.1/spec/validation-codes.html).
  *
- * Codes mirror the identifiers in the OCFL 1.1 specification validation
- * codes document (https://ocfl.io/1.1/spec/validation-codes.html) and
- * allow validators to emit structured, spec-linkable diagnostics.
- *
- * Only the codes this package currently emits are enumerated; the set
- * will grow as more phases come online.
+ * Only the codes this package actually emits are enumerated; the set grows
+ * as the validator gains coverage.
  */
 enum ErrorCode: string
 {

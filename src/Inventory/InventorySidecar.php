@@ -16,16 +16,14 @@ use Ottosmops\Ocfl\Validation\OcflException;
  */
 final class InventorySidecar
 {
-    private const INVENTORY_FILENAME = 'inventory.json';
-
     public static function filename(DigestAlgorithm $algorithm): string
     {
-        return self::INVENTORY_FILENAME . '.' . $algorithm->value;
+        return Inventory::FILENAME . '.' . $algorithm->value;
     }
 
     public static function writeFor(string $directory, DigestAlgorithm $algorithm): string
     {
-        $inventoryPath = $directory . DIRECTORY_SEPARATOR . self::INVENTORY_FILENAME;
+        $inventoryPath = $directory . DIRECTORY_SEPARATOR . Inventory::FILENAME;
 
         if (! is_file($inventoryPath)) {
             throw new OcflException(
@@ -37,7 +35,7 @@ final class InventorySidecar
         $digest = Digest::ofFile($inventoryPath, $algorithm);
         $sidecarPath = $directory . DIRECTORY_SEPARATOR . self::filename($algorithm);
 
-        if (file_put_contents($sidecarPath, "{$digest} " . self::INVENTORY_FILENAME . "\n") === false) {
+        if (file_put_contents($sidecarPath, "{$digest} " . Inventory::FILENAME . "\n") === false) {
             throw new OcflException(ErrorCode::E058, "failed to write sidecar at {$sidecarPath}");
         }
 
@@ -48,14 +46,17 @@ final class InventorySidecar
     {
         $path = $directory . DIRECTORY_SEPARATOR . self::filename($algorithm);
 
-        if (! is_file($path) || ! is_readable($path)) {
-            throw new OcflException(ErrorCode::E058, "sidecar missing or unreadable: {$path}");
+        if (! is_file($path)) {
+            throw new OcflException(ErrorCode::E058, "sidecar missing: {$path}");
         }
 
-        $contents = (string) file_get_contents($path);
-        $trimmed = rtrim($contents, "\n");
+        $contents = file_get_contents($path);
 
-        if (! preg_match('/^([a-fA-F0-9]+)\s+inventory\.json$/', $trimmed, $matches)) {
+        if ($contents === false) {
+            throw new OcflException(ErrorCode::E058, "sidecar unreadable: {$path}");
+        }
+
+        if (! preg_match('/^([a-fA-F0-9]+)\s+inventory\.json$/', rtrim($contents, "\n"), $matches)) {
             throw new OcflException(ErrorCode::E058, "sidecar malformed: {$path}");
         }
 
@@ -66,7 +67,7 @@ final class InventorySidecar
     {
         $expected = self::readDigest($directory, $algorithm);
         $actual = Digest::ofFile(
-            $directory . DIRECTORY_SEPARATOR . self::INVENTORY_FILENAME,
+            $directory . DIRECTORY_SEPARATOR . Inventory::FILENAME,
             $algorithm,
         );
 

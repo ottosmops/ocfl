@@ -13,6 +13,8 @@ final readonly class Inventory
 {
     public const TYPE = 'https://ocfl.io/1.1/spec/#inventory';
 
+    public const FILENAME = 'inventory.json';
+
     public const DEFAULT_CONTENT_DIRECTORY = 'content';
 
     /**
@@ -30,11 +32,6 @@ final readonly class Inventory
         public array $versions,
         public array $fixity = [],
     ) {
-    }
-
-    public function headVersion(): Version
-    {
-        return $this->versions[$this->head];
     }
 
     /**

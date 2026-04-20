@@ -21,7 +21,7 @@ final class Digest
 
     public static function ofFile(string $path, DigestAlgorithm $algorithm): string
     {
-        if (! is_file($path) || ! is_readable($path)) {
+        if (! is_file($path)) {
             throw new RuntimeException("Unable to compute digest for file: {$path}");
         }
 

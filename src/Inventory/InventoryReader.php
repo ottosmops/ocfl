@@ -15,7 +15,7 @@ use Ottosmops\Ocfl\Validation\OcflException;
  *
  * Validation here is the minimum required to construct a type-safe domain
  * model (presence of required fields, correct types). Richer structural
- * validation against all OCFL error codes lives in the Validator (phase 6).
+ * validation against all OCFL error codes lives in the Validator.
  */
 final class InventoryReader
 {
@@ -35,20 +35,14 @@ final class InventoryReader
 
     public static function fromFile(string $path): Inventory
     {
-        if (! is_file($path) || ! is_readable($path)) {
-            throw new OcflException(
-                ErrorCode::E033,
-                "inventory file not readable: {$path}",
-            );
+        if (! is_file($path)) {
+            throw new OcflException(ErrorCode::E033, "inventory file not readable: {$path}");
         }
 
         $contents = file_get_contents($path);
 
         if ($contents === false) {
-            throw new OcflException(
-                ErrorCode::E033,
-                "inventory file read failed: {$path}",
-            );
+            throw new OcflException(ErrorCode::E033, "inventory file read failed: {$path}");
         }
 
         return self::fromString($contents);

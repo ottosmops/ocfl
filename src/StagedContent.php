@@ -13,8 +13,8 @@ use RuntimeException;
 final readonly class StagedContent
 {
     public function __construct(
-        public ?string $sourcePath = null,
-        public ?string $inlineBytes = null,
+        private ?string $sourcePath = null,
+        private ?string $inlineBytes = null,
     ) {
         if ($sourcePath === null && $inlineBytes === null) {
             throw new RuntimeException('StagedContent needs either sourcePath or inlineBytes');

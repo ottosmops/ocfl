@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ottosmops\Ocfl;
 
+use Ottosmops\Ocfl\Internal\Fs;
 use Ottosmops\Ocfl\Inventory\Inventory;
 use Ottosmops\Ocfl\Inventory\InventoryReader;
 use Ottosmops\Ocfl\Inventory\InventorySidecar;
@@ -44,7 +45,7 @@ final readonly class OcflObject
             );
         }
 
-        $inventoryPath = $path . DIRECTORY_SEPARATOR . 'inventory.json';
+        $inventoryPath = $path . DIRECTORY_SEPARATOR . Inventory::FILENAME;
         $inventory = InventoryReader::fromFile($inventoryPath);
 
         if (! InventorySidecar::verify($path, $inventory->digestAlgorithm)) {
@@ -70,19 +71,11 @@ final readonly class OcflObject
         string $id,
         DigestAlgorithm $digestAlgorithm = DigestAlgorithm::Sha512,
     ): self {
-        if (! is_dir($path) && ! mkdir($path, 0o755, true) && ! is_dir($path)) {
-            throw new OcflException(ErrorCode::E001, "failed to create object root {$path}");
-        }
+        Fs::ensureDirectory($path);
 
         // An object root MUST be empty before initialisation (§3.3).
-        $existing = scandir($path) ?: [];
-        foreach ($existing as $entry) {
-            if ($entry !== '.' && $entry !== '..') {
-                throw new OcflException(
-                    ErrorCode::E001,
-                    "object root {$path} is not empty",
-                );
-            }
+        if ((new \FilesystemIterator($path))->valid()) {
+            throw new OcflException(ErrorCode::E001, "object root {$path} is not empty");
         }
 
         Namaste::write($path, NamasteType::ObjectRoot);
@@ -145,9 +138,6 @@ final readonly class OcflObject
     }
 
     /**
-     * Resolve a logical path in a version to its content path, relative to
-     * the object root.
-     *
      * OCFL uses forward-delta dedup: an unchanged file's content entry may
      * still live in the v1 content directory even when referenced from v3.
      */
@@ -171,14 +161,17 @@ final readonly class OcflObject
         $relative = $this->resolveContentPath($version, $logicalPath);
         $absolute = $this->path . DIRECTORY_SEPARATOR . $relative;
 
-        if (! is_file($absolute) || ! is_readable($absolute)) {
-            throw new OcflException(
-                ErrorCode::E092,
-                "content file missing at {$absolute}",
-            );
+        if (! is_file($absolute)) {
+            throw new OcflException(ErrorCode::E092, "content file missing at {$absolute}");
         }
 
-        return (string) file_get_contents($absolute);
+        $bytes = file_get_contents($absolute);
+
+        if ($bytes === false) {
+            throw new OcflException(ErrorCode::E092, "content file unreadable at {$absolute}");
+        }
+
+        return $bytes;
     }
 
     /**
@@ -189,12 +182,7 @@ final readonly class OcflObject
         $version ??= $this->inventory->head;
         $state = $this->requireVersion($version)->state;
 
-        if (! is_dir($targetDirectory) && ! mkdir($targetDirectory, 0o755, true) && ! is_dir($targetDirectory)) {
-            throw new OcflException(
-                ErrorCode::E001,
-                "failed to create checkout target {$targetDirectory}",
-            );
-        }
+        Fs::ensureDirectory($targetDirectory);
 
         foreach ($state as $digest => $logicalPaths) {
             $source = $this->path . DIRECTORY_SEPARATOR
@@ -202,14 +190,7 @@ final readonly class OcflObject
 
             foreach ($logicalPaths as $logicalPath) {
                 $destination = $targetDirectory . DIRECTORY_SEPARATOR . $logicalPath;
-                $parent = dirname($destination);
-
-                if (! is_dir($parent) && ! mkdir($parent, 0o755, true) && ! is_dir($parent)) {
-                    throw new OcflException(
-                        ErrorCode::E001,
-                        "failed to create directory {$parent}",
-                    );
-                }
+                Fs::ensureDirectory(dirname($destination));
 
                 if (! copy($source, $destination)) {
                     throw new OcflException(
