@@ -24,7 +24,7 @@ GCS, in-memory, …).
 - **Storage layouts** — `0002-flat-direct-storage-layout` and
   `0004-hashed-n-tuple-storage-layout` out of the box, with a pluggable
   `StorageLayout` interface for custom extensions.
-- **Validator** — rejects 47 of the 54 OCFL [bad-object fixtures](https://github.com/OCFL/fixtures)
+- **Validator** — rejects all 55 OCFL [bad-object fixtures](https://github.com/OCFL/fixtures)
   with the correct spec-referenced error codes, accepts all 12 good-object
   fixtures, and emits 13/13 warn-object advisories.
 - **Pluggable storage** — `LocalFilesystem` by default; `FlysystemFilesystem`
@@ -178,7 +178,7 @@ directly to <https://ocfl.io/1.1/spec/validation-codes.html>.
 | Category | Coverage |
 |----------|----------|
 | Good-object fixtures | 12 / 12 validate with zero errors |
-| Bad-object fixtures | 47 / 54 rejected with the documented error code |
+| Bad-object fixtures | 55 / 55 rejected with the documented error code |
 | Warn-object fixtures | 13 / 13 emit the documented advisory |
 
 Implemented error codes: `E001 E003 E007 E008 E010 E011 E013 E015 E017
@@ -215,4 +215,4 @@ CI runs on Ubuntu and macOS against PHP 8.3 and 8.4.
 
 ## License
 
-MIT © Andreas Kränzle. See [LICENSE](LICENSE).
+See [LICENSE](LICENSE).

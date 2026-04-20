@@ -99,6 +99,7 @@ it('rejects bad-object fixtures with the expected error codes', function (string
     ['E100_E099_fixity_invalid_content_paths', ErrorCode::E100],
     ['E008_E036_no_versions_no_head', ErrorCode::E036],
     ['E010_skipped_versions', ErrorCode::E010],
+    ['E011_E013_invalid_padded_head_version', ErrorCode::E013],
     ['E040_wrong_version_in_version_dir', ErrorCode::E040],
     ['E066_algorithm_change_state_mismatch', ErrorCode::E066],
     ['E066_inconsistent_version_state', ErrorCode::E066],

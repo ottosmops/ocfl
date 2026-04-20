@@ -195,11 +195,38 @@ final class ObjectValidator
             }
         }
 
-        $padding = self::detectPaddingWidth($versionNames);
-        if ($padding !== null && $padding > 1) {
+        // Zero-padded and unpadded versions MUST NOT be mixed (spec E013).
+        // A name is "padded" iff the number part has a leading zero. v10
+        // is unpadded, v01 is padded, v001 is padded.
+        $paddedNames = [];
+        $unpaddedNames = [];
+        foreach (array_merge($versionNames, [$inventory->head]) as $name) {
+            $name = (string) $name;
+            if (preg_match('/^v(\d+)$/', $name, $matches) !== 1) {
+                continue;
+            }
+            $numberPart = $matches[1];
+            if (strlen($numberPart) > 1 && $numberPart[0] === '0') {
+                $paddedNames[] = $name;
+            } else {
+                $unpaddedNames[] = $name;
+            }
+        }
+
+        if ($paddedNames !== [] && $unpaddedNames !== []) {
+            $report->addError(
+                ErrorCode::E013,
+                'inventory mixes zero-padded and unpadded version numbers ('
+                . 'padded: ' . implode(',', array_slice($paddedNames, 0, 3))
+                . '; unpadded: ' . implode(',', array_slice($unpaddedNames, 0, 3))
+                . ')',
+            );
+        }
+
+        if ($paddedNames !== []) {
             $report->addWarning(
                 ErrorCode::W001,
-                "version directory names are zero-padded ({$versionNames[0]})",
+                "version directory names are zero-padded ({$paddedNames[0]})",
             );
         }
 
@@ -652,17 +679,6 @@ final class ObjectValidator
             );
         }
 
-        // Zero-padded heads that don't match the padding of their version
-        // directories violate E013.
-        $anyVersionName = array_key_first($inventory->versions);
-        if (is_string($anyVersionName) && strlen($anyVersionName) !== strlen($inventory->head)
-            && preg_match('/^v\d+$/', $inventory->head) === 1
-            && preg_match('/^v\d+$/', $anyVersionName) === 1) {
-            $report->addError(
-                ErrorCode::E013,
-                "head padding '{$inventory->head}' inconsistent with version names (e.g. {$anyVersionName})",
-            );
-        }
     }
 
     private function checkFixity(Filesystem $fs, string $objectRoot, Inventory $inventory, ValidationReport $report): void
@@ -995,23 +1011,6 @@ final class ObjectValidator
                 }
             }
         }
-    }
-
-    /**
-     * @param  list<string>  $versionNames
-     */
-    private static function detectPaddingWidth(array $versionNames): ?int
-    {
-        if ($versionNames === []) {
-            return null;
-        }
-
-        $first = (string) $versionNames[0];
-        if (preg_match('/^v(0+)?\d+$/', $first, $matches) !== 1) {
-            return null;
-        }
-
-        return strlen($first) - 1;
     }
 
     private static function looksLikeUri(string $value): bool
