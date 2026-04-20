@@ -26,9 +26,14 @@ final class CreateCommand implements Command
             return 2;
         }
 
-        $algorithm = DigestAlgorithm::tryFrom($options->value('digest', 'sha512') ?? 'sha512');
+        $digestValue = $options->value('digest') ?? DigestAlgorithm::Sha512->value;
+        $algorithm = DigestAlgorithm::tryFrom($digestValue);
         if ($algorithm === null || ! $algorithm->isPrimary()) {
-            fwrite($stderr, "create: unsupported --digest (must be sha512 or sha256)\n");
+            $allowed = implode(', ', array_map(
+                fn (DigestAlgorithm $a) => $a->value,
+                array_filter(DigestAlgorithm::cases(), fn (DigestAlgorithm $a) => $a->isPrimary()),
+            ));
+            fwrite($stderr, "create: unsupported --digest '{$digestValue}' (must be {$allowed})\n");
 
             return 2;
         }

@@ -6,6 +6,7 @@ namespace Ottosmops\Ocfl;
 
 use DateTimeImmutable;
 use Ottosmops\Ocfl\Filesystem\Filesystem;
+use Ottosmops\Ocfl\Internal\PendingMeta;
 use Ottosmops\Ocfl\Inventory\Inventory;
 use Ottosmops\Ocfl\Inventory\InventorySidecar;
 use Ottosmops\Ocfl\Inventory\InventoryWriter;
@@ -160,13 +161,7 @@ final class VersionBuilder
             algorithm: $algorithm,
         );
 
-        // Remove the pre-commit pending-metadata file written by
-        // OcflObject::create(), if present; it is no longer needed once a
-        // real inventory exists.
-        $pendingPath = $this->base->path . '/' . OcflObject::PENDING_META;
-        if ($fs->fileExists($pendingPath)) {
-            $fs->delete($pendingPath);
-        }
+        PendingMeta::discard($fs, $this->base->path);
 
         return OcflObject::open($this->base->path, $fs);
     }

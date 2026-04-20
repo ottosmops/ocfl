@@ -6,6 +6,7 @@ namespace Ottosmops\Ocfl;
 
 use Ottosmops\Ocfl\Filesystem\Filesystem;
 use Ottosmops\Ocfl\Filesystem\LocalFilesystem;
+use Ottosmops\Ocfl\Internal\PendingMeta;
 use Ottosmops\Ocfl\Inventory\Inventory;
 use Ottosmops\Ocfl\Inventory\InventoryReader;
 use Ottosmops\Ocfl\Inventory\InventorySidecar;
@@ -70,19 +71,13 @@ final readonly class OcflObject
 
     private static function emptyInventory(Filesystem $fs, string $path): Inventory
     {
-        $id = '';
-        $algorithm = DigestAlgorithm::Sha512;
+        $pending = PendingMeta::read($fs, $path) ?? new PendingMeta('', DigestAlgorithm::Sha512);
 
-        $pendingPath = $path . '/' . self::PENDING_META;
-        if ($fs->fileExists($pendingPath)) {
-            /** @var array{id?: string, digestAlgorithm?: string} $meta */
-            $meta = json_decode($fs->read($pendingPath), true, flags: JSON_THROW_ON_ERROR);
-            $id = (string) ($meta['id'] ?? '');
-            if (isset($meta['digestAlgorithm'])) {
-                $algorithm = DigestAlgorithm::tryFrom($meta['digestAlgorithm']) ?? DigestAlgorithm::Sha512;
-            }
-        }
+        return self::buildEmptyInventory($pending->id, $pending->digestAlgorithm);
+    }
 
+    private static function buildEmptyInventory(string $id, DigestAlgorithm $algorithm): Inventory
+    {
         return new Inventory(
             id: $id,
             type: Inventory::TYPE,
@@ -115,32 +110,10 @@ final readonly class OcflObject
         }
 
         Namaste::write($fs, $path, NamasteType::ObjectRoot);
+        PendingMeta::write($fs, $path, new PendingMeta($id, $digestAlgorithm));
 
-        // Persist enough state so a later CLI invocation (create then
-        // commit in separate processes) can recover the id and chosen
-        // digest algorithm. The file is removed by the first commit.
-        $fs->write(
-            $path . '/' . self::PENDING_META,
-            (string) json_encode([
-                'id' => $id,
-                'digestAlgorithm' => $digestAlgorithm->value,
-            ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
-        );
-
-        $emptyInventory = new Inventory(
-            id: $id,
-            type: Inventory::TYPE,
-            digestAlgorithm: $digestAlgorithm,
-            head: '',
-            contentDirectory: Inventory::DEFAULT_CONTENT_DIRECTORY,
-            manifest: [],
-            versions: [],
-        );
-
-        return new self($path, $emptyInventory, $fs);
+        return new self($path, self::buildEmptyInventory($id, $digestAlgorithm), $fs);
     }
-
-    public const PENDING_META = '.ocfl-pending-meta.json';
 
     public function newVersion(): VersionBuilder
     {

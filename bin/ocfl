@@ -12,12 +12,19 @@ $autoloaders = [
     __DIR__ . '/../../../autoload.php',
 ];
 
+$loaded = false;
 foreach ($autoloaders as $path) {
     if (is_file($path)) {
         require $path;
+        $loaded = true;
 
         break;
     }
+}
+
+if (! $loaded) {
+    fwrite(STDERR, "ocfl: could not locate Composer autoloader (searched: " . implode(', ', $autoloaders) . ")\n");
+    exit(3);
 }
 
 exit((new Ottosmops\Ocfl\Cli\Application())->run(

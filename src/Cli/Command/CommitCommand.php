@@ -4,11 +4,9 @@ declare(strict_types=1);
 
 namespace Ottosmops\Ocfl\Cli\Command;
 
-use FilesystemIterator;
+use Generator;
+use Ottosmops\Ocfl\Filesystem\LocalFilesystem;
 use Ottosmops\Ocfl\OcflObject;
-use RecursiveDirectoryIterator;
-use RecursiveIteratorIterator;
-use SplFileInfo;
 
 final class CommitCommand implements Command
 {
@@ -44,19 +42,18 @@ final class CommitCommand implements Command
         $object = OcflObject::open($path);
         $builder = $object->newVersion();
 
-        // Use the source directory as the canonical logical state of the
-        // next version: add everything under $from, and remove anything in
-        // the head that isn't present in $from (so the commit produces a
-        // state that mirrors the on-disk snapshot).
-        $sourcePaths = self::collectFiles($from);
-        foreach ($sourcePaths as $logicalPath => $absolute) {
+        // Take the source directory as the canonical logical state of the
+        // next version: add every file under $from, then remove any path
+        // from the previous head that isn't in $from.
+        $sourceSet = [];
+        foreach (self::iterateSource($from) as $logicalPath => $absolute) {
             $builder->addFile($logicalPath, $absolute);
+            $sourceSet[$logicalPath] = true;
         }
 
         if ($object->head() !== '') {
-            $existing = $object->logicalPaths($object->head());
-            foreach ($existing as $existingPath) {
-                if (! isset($sourcePaths[$existingPath])) {
+            foreach ($object->logicalPaths($object->head()) as $existingPath) {
+                if (! isset($sourceSet[$existingPath])) {
                     $builder->removeFile($existingPath);
                 }
             }
@@ -80,27 +77,13 @@ final class CommitCommand implements Command
     }
 
     /**
-     * @return array<string, string> logicalPath → absolute source path
+     * @return Generator<string, string> logicalPath → absolute source path
      */
-    private static function collectFiles(string $directory): array
+    private static function iterateSource(string $directory): Generator
     {
-        $out = [];
-        $iter = new RecursiveIteratorIterator(
-            new RecursiveDirectoryIterator($directory, FilesystemIterator::SKIP_DOTS),
-        );
-
-        $prefix = strlen($directory) + 1;
-        foreach ($iter as $entry) {
-            /** @var SplFileInfo $entry */
-            if (! $entry->isFile()) {
-                continue;
-            }
-            $logical = str_replace(DIRECTORY_SEPARATOR, '/', substr($entry->getPathname(), $prefix));
-            $out[$logical] = $entry->getPathname();
+        $fs = new LocalFilesystem();
+        foreach ($fs->listFilesRecursively($directory) as $relative) {
+            yield $relative => $directory . '/' . $relative;
         }
-
-        ksort($out);
-
-        return $out;
     }
 }
