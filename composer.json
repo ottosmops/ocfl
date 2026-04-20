@@ -1,7 +1,16 @@
 {
     "name": "ottosmops/ocfl",
     "description": "PHP implementation of the Oxford Common File Layout (OCFL) v1.1 storage specification.",
-    "keywords": ["ocfl", "digital-preservation", "archiving", "repository", "fixity"],
+    "keywords": [
+        "ocfl",
+        "digital-preservation",
+        "archiving",
+        "repository",
+        "fixity",
+        "storage",
+        "versioning",
+        "oxford-common-file-layout"
+    ],
     "homepage": "https://github.com/ottosmops/ocfl",
     "license": "MIT",
     "authors": [
@@ -10,6 +19,10 @@
             "email": "kraenzle@k-r.ch"
         }
     ],
+    "support": {
+        "issues": "https://github.com/ottosmops/ocfl/issues",
+        "source": "https://github.com/ottosmops/ocfl"
+    },
     "require": {
         "php": "^8.3",
         "ext-hash": "*",
@@ -25,29 +38,47 @@
         "rector/rector": "^2.0"
     },
     "suggest": {
-        "league/flysystem": "^3.0 — enables FlysystemFilesystem for S3/Azure/etc. backends"
+        "league/flysystem": "^3.0 — enables FlysystemFilesystem for S3/Azure/GCS/etc. backends"
     },
     "autoload": {
         "psr-4": {
             "Ottosmops\\Ocfl\\": "src/"
         }
     },
-    "bin": ["bin/ocfl"],
     "autoload-dev": {
         "psr-4": {
             "Tests\\": "tests/"
         }
     },
+    "bin": ["bin/ocfl"],
     "scripts": {
         "test": "pest",
         "test:coverage": "pest --coverage",
         "analyse": "phpstan analyse",
         "format": "pint",
+        "format:check": "pint --test",
         "refactor": "rector process",
         "check": [
-            "@format",
+            "@format:check",
             "@analyse",
             "@test"
+        ]
+    },
+    "archive": {
+        "exclude": [
+            "/tests",
+            "/.github",
+            "/.gitattributes",
+            "/.gitignore",
+            "/.gitmodules",
+            "/.editorconfig",
+            "/.phpstan.cache",
+            "/.phpunit.cache",
+            "/phpunit.xml",
+            "/phpstan.neon",
+            "/pint.json",
+            "/rector.php",
+            "/CHANGELOG.md"
         ]
     },
     "config": {
