@@ -36,7 +36,10 @@ final class InventorySidecar
 
         $digest = $fs->digestFile($inventoryPath, $algorithm);
         $sidecarPath = $directory . '/' . self::filename($algorithm);
-        $fs->write($sidecarPath, "{$digest} " . Inventory::FILENAME . "\n");
+        // A partial write must not destroy the checksum acknowledging the previous inventory.
+        $temporaryPath = $sidecarPath . '.tmp-' . bin2hex(random_bytes(8));
+        $fs->write($temporaryPath, "{$digest} " . Inventory::FILENAME . "\n");
+        $fs->move($temporaryPath, $sidecarPath);
 
         return $sidecarPath;
     }

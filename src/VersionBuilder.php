@@ -28,7 +28,7 @@ use Throwable;
  *     content files whose digests are not yet present in the object's
  *     manifest (forward-delta dedup).
  *   - Root and version-dir inventories are written together, then the root
- *     inventory is renamed into place as the atomic commit point.
+ *     inventory and its sidecar are each replaced by rename (not an atomic pair).
  */
 final class VersionBuilder
 {
