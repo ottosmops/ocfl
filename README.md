@@ -1,5 +1,12 @@
 # ottosmops/ocfl
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="art/eichhoernchen-dark.png">
+    <img src="art/eichhoernchen.png" alt="A squirrel, drawn in the style of a wood engraving" width="280">
+  </picture>
+</p>
+
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/ottosmops/ocfl.svg?style=flat-square)](https://packagist.org/packages/ottosmops/ocfl)
 [![Total Downloads](https://img.shields.io/packagist/dt/ottosmops/ocfl.svg?style=flat-square)](https://packagist.org/packages/ottosmops/ocfl)
 [![Tests](https://github.com/ottosmops/ocfl/actions/workflows/tests.yml/badge.svg)](https://github.com/ottosmops/ocfl/actions/workflows/tests.yml)
