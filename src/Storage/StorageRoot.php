@@ -19,17 +19,38 @@ use Ottosmops\Ocfl\Validation\OcflException;
  *
  * Responsibilities:
  *   - Declare itself with a NAMASTE file (0=ocfl_1.1).
- *   - Record the configured id-to-path layout in ocfl_layout.json.
+ *   - Name the configured id-to-path layout in ocfl_layout.json (§4.1:
+ *     exactly the keys `extension` and `description`) and store the
+ *     layout's parameters in extensions/<extension>/config.json.
  *   - Place and retrieve OcflObjects by id through that layout.
+ *
+ * Roots written by v1.0.0 carry the layout configuration (with
+ * `extensionName`) directly in ocfl_layout.json. They still open; see
+ * hasLegacyLayoutDeclaration() and upgradeLayoutDeclaration().
  */
 final class StorageRoot
 {
     private const LAYOUT_FILENAME = 'ocfl_layout.json';
 
+    private const EXTENSIONS_DIRECTORY = 'extensions';
+
+    private const EXTENSION_CONFIG_FILENAME = 'config.json';
+
+    private const LAYOUT_DESCRIPTIONS = [
+        FlatDirectStorageLayout::EXTENSION_NAME => 'Flat direct storage layout: each object is stored in a'
+            . ' directory named after its identifier, directly below the storage root. See'
+            . ' https://ocfl.github.io/extensions/0002-flat-direct-storage-layout.html',
+        HashedNTupleStorageLayout::EXTENSION_NAME => 'Hashed N-tuple storage layout: the object identifier is'
+            . ' hashed and the digest split into N tuples to form the object path. Parameters in'
+            . ' extensions/0004-hashed-n-tuple-storage-layout/config.json. See'
+            . ' https://ocfl.github.io/extensions/0004-hashed-n-tuple-storage-layout.html',
+    ];
+
     private function __construct(
         public readonly string $path,
         private readonly StorageLayout $layout,
         private readonly Filesystem $fs,
+        private bool $legacyLayoutDeclaration = false,
     ) {
     }
 
@@ -43,15 +64,7 @@ final class StorageRoot
         }
 
         Namaste::write($fs, $path, NamasteType::StorageRoot);
-
-        $config = $layout->configuration();
-        try {
-            $json = json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
-        } catch (JsonException $e) {
-            throw new OcflException(ErrorCode::E001, 'failed to encode layout config', $e);
-        }
-
-        $fs->write($path . '/' . self::LAYOUT_FILENAME, $json . "\n");
+        self::writeLayoutDeclaration($fs, $path, $layout);
 
         return new self($path, $layout, $fs);
     }
@@ -86,17 +99,61 @@ final class StorageRoot
             throw new OcflException(ErrorCode::E070, 'ocfl_layout.json is not valid JSON', $e);
         }
 
-        if (! is_array($decoded) || ! isset($decoded['extensionName']) || ! is_string($decoded['extensionName'])) {
-            throw new OcflException(ErrorCode::E070, 'ocfl_layout.json missing extensionName');
+        if (! is_array($decoded)) {
+            throw new OcflException(ErrorCode::E070, 'ocfl_layout.json is not a JSON object');
         }
 
-        /** @var array<array-key, mixed> $decoded */
-        return new self($path, self::layoutFromConfig($decoded), $fs);
+        // Spec form (§4.1): {"extension": ..., "description": ...}, with the
+        // parameters in extensions/<extension>/config.json.
+        if (array_key_exists('extension', $decoded)) {
+            if (! is_string($decoded['extension'])) {
+                throw new OcflException(ErrorCode::E070, 'ocfl_layout.json extension must be a string');
+            }
+
+            $name = self::assertSupportedLayout($decoded['extension']);
+
+            return new self($path, self::layoutFromConfig(self::readExtensionConfig($fs, $path, $name)), $fs);
+        }
+
+        // v1.0.0 form: the extension configuration written into ocfl_layout.json.
+        if (isset($decoded['extensionName']) && is_string($decoded['extensionName'])) {
+            self::assertSupportedLayout($decoded['extensionName']);
+
+            return new self($path, self::layoutFromConfig($decoded), $fs, legacyLayoutDeclaration: true);
+        }
+
+        throw new OcflException(ErrorCode::E070, 'ocfl_layout.json missing extension');
     }
 
     public function layout(): StorageLayout
     {
         return $this->layout;
+    }
+
+    /**
+     * True when this root was written by ottosmops/ocfl v1.0.0, which put the
+     * layout configuration into ocfl_layout.json instead of the two keys
+     * required by OCFL 1.1 §4.1. Such a root works, but other OCFL
+     * implementations may not recognise its layout.
+     */
+    public function hasLegacyLayoutDeclaration(): bool
+    {
+        return $this->legacyLayoutDeclaration;
+    }
+
+    /**
+     * Rewrite a v1.0.0-style layout declaration into the spec form:
+     * extensions/<extension>/config.json first, then ocfl_layout.json.
+     * Objects are not touched. No-op on a conformant root.
+     */
+    public function upgradeLayoutDeclaration(): void
+    {
+        if (! $this->legacyLayoutDeclaration) {
+            return;
+        }
+
+        self::writeLayoutDeclaration($this->fs, $this->path, $this->layout);
+        $this->legacyLayoutDeclaration = false;
     }
 
     public function createObject(string $id, DigestAlgorithm $digestAlgorithm = DigestAlgorithm::Sha512): OcflObject
@@ -162,6 +219,88 @@ final class StorageRoot
                 $this->collectObjectsBelow($entryPath, $ids);
             }
         }
+    }
+
+    /**
+     * Write extensions/<extension>/config.json, then ocfl_layout.json, so a
+     * crash in between never leaves a declaration pointing at a missing config.
+     */
+    private static function writeLayoutDeclaration(Filesystem $fs, string $path, StorageLayout $layout): void
+    {
+        $name = $layout->extensionName();
+        $declaration = [
+            'extension' => $name,
+            'description' => self::LAYOUT_DESCRIPTIONS[$name] ?? "Storage layout per OCFL extension {$name}",
+        ];
+
+        $fs->write(self::extensionConfigPath($path, $name), self::encodeJson($layout->configuration()));
+        $fs->write($path . '/' . self::LAYOUT_FILENAME, self::encodeJson($declaration));
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private static function encodeJson(array $data): string
+    {
+        try {
+            return json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
+        } catch (JsonException $e) {
+            throw new OcflException(ErrorCode::E001, 'failed to encode layout declaration', $e);
+        }
+    }
+
+    private static function extensionConfigPath(string $path, string $name): string
+    {
+        return $path . '/' . self::EXTENSIONS_DIRECTORY . '/' . $name . '/' . self::EXTENSION_CONFIG_FILENAME;
+    }
+
+    /**
+     * Only known layout names pass, which also keeps the name safe to use
+     * as a path segment.
+     */
+    private static function assertSupportedLayout(string $name): string
+    {
+        if (! array_key_exists($name, self::LAYOUT_DESCRIPTIONS)) {
+            throw new OcflException(ErrorCode::E070, "unsupported storage layout extension '{$name}'");
+        }
+
+        return $name;
+    }
+
+    /**
+     * Read extensions/<name>/config.json. A missing file means the
+     * extension's defaults apply.
+     *
+     * @return array<array-key, mixed>
+     */
+    private static function readExtensionConfig(Filesystem $fs, string $path, string $name): array
+    {
+        $configPath = self::extensionConfigPath($path, $name);
+        if (! $fs->fileExists($configPath)) {
+            return ['extensionName' => $name];
+        }
+
+        try {
+            /** @var mixed $config */
+            $config = json_decode($fs->read($configPath), true, flags: JSON_THROW_ON_ERROR);
+        } catch (JsonException $e) {
+            throw new OcflException(ErrorCode::E070, "{$configPath} is not valid JSON", $e);
+        }
+
+        if (! is_array($config)) {
+            throw new OcflException(ErrorCode::E070, "{$configPath} is not a JSON object");
+        }
+
+        $configured = $config['extensionName'] ?? $name;
+        if ($configured !== $name) {
+            throw new OcflException(
+                ErrorCode::E070,
+                "{$configPath} names extension '" . (is_string($configured) ? $configured : '?')
+                . "', but ocfl_layout.json declares '{$name}'",
+            );
+        }
+
+        return ['extensionName' => $name] + $config;
     }
 
     /**
