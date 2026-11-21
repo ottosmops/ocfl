@@ -131,6 +131,17 @@ $object = $root->getObject('urn:example:foo');
 $ids    = $root->listObjects();
 ```
 
+The root declares its layout in `ocfl_layout.json` (keys `extension` and `description`, OCFL 1.1 §4.1); the layout's parameters live in `extensions/<extension>/config.json`.
+
+Roots written by v1.0.0 put the layout configuration straight into `ocfl_layout.json`. They still open. `hasLegacyLayoutDeclaration()` tells you whether a root is one of them, and `upgradeLayoutDeclaration()` rewrites its declaration in the spec form (objects are not touched):
+
+```php
+$root = StorageRoot::open('/path/to/storage');
+if ($root->hasLegacyLayoutDeclaration()) {
+    $root->upgradeLayoutDeclaration();
+}
+```
+
 ### Checking out a version
 
 ```php

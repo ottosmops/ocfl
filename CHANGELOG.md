@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `StorageRoot::create()` now writes a spec-conformant `ocfl_layout.json` (OCFL 1.1 §4.1): exactly the keys `extension` and `description`. The layout's parameters go to `extensions/<extension>/config.json`, as the community extensions define. v1.0.0 wrote the layout configuration (with `extensionName`) straight into `ocfl_layout.json`, which other OCFL implementations do not recognise.
+- `StorageRoot::open()` reads the spec form, taking the parameters from `extensions/<extension>/config.json` (extension defaults when the file is absent). A `config.json` that is not valid JSON or names a different extension is rejected with E070.
+
+### Added
+
+- `StorageRoot::hasLegacyLayoutDeclaration()`: true for a root written by v1.0.0. Such roots still open and resolve object paths unchanged; opening never rewrites them.
+- `StorageRoot::upgradeLayoutDeclaration()`: rewrites a v1.0.0-style declaration in the spec form (config first, then `ocfl_layout.json`). Objects are not touched; no-op on a conformant root.
+
 ## [1.0.0] — 2026-04-20
 
 ### Added
