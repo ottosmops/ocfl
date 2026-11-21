@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-11-21
+
 ### Fixed
 
 - `StorageRoot::create()` now writes a spec-conformant `ocfl_layout.json` (OCFL 1.1 §4.1): exactly the keys `extension` and `description`. The layout's parameters go to `extensions/<extension>/config.json`, as the community extensions define. v1.0.0 wrote the layout configuration (with `extensionName`) straight into `ocfl_layout.json`, which other OCFL implementations do not recognise.
@@ -40,5 +42,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Test suite: 249 tests, 469 assertions, 94 % line coverage.
   Runs against the upstream [OCFL fixtures](https://github.com/OCFL/fixtures).
 
-[Unreleased]: https://github.com/ottosmops/ocfl/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/ottosmops/ocfl/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/ottosmops/ocfl/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/ottosmops/ocfl/releases/tag/v1.0.0
